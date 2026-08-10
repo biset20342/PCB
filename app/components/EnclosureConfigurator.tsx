@@ -14,41 +14,39 @@ import {
   Info,
   Maximize2,
   RotateCcw,
-  ShieldCheck,
   Sparkles,
 } from "lucide-react";
 
 type LidType = "SCREW" | "SNAP";
 type SealType = "NONE" | "GASKET";
-type CaseFamily = "DESKTOP" | "COMPACT" | "INDUSTRIAL";
+type CaseFamily = "LIGHTWEIGHT" | "SEALED";
 
 type Config = {
   family: CaseFamily;
   length: number;
   width: number;
   height: number;
+  lidHeight: number;
   wall: number;
+  screwThickness: number;
   cornerRadius: number;
   lid: LidType;
   seal: SealType;
 };
 
-const FAMILY_PRESETS: Record<CaseFamily, Pick<Config, "length" | "width" | "height" | "wall">> = {
-  DESKTOP: { length: 120, width: 80, height: 38, wall: 2.4 },
-  COMPACT: { length: 80, width: 55, height: 28, wall: 2.0 },
-  INDUSTRIAL: { length: 160, width: 110, height: 52, wall: 3.0 },
+const FAMILY_PRESETS: Record<CaseFamily, Pick<Config, "length" | "width" | "height" | "lidHeight" | "wall" | "screwThickness" | "cornerRadius">> = {
+  LIGHTWEIGHT: { length: 80, width: 60, height: 30, lidHeight: 12, wall: 2.4, screwThickness: 2.4, cornerRadius: 4.5 },
+  SEALED: { length: 80, width: 60, height: 36, lidHeight: 14, wall: 3.0, screwThickness: 3.0, cornerRadius: 6 },
 };
 
 const FAMILY_LABELS: Record<CaseFamily, { name: string; note: string }> = {
-  DESKTOP: { name: "桌上型", note: "一般控制器、感測盒" },
-  COMPACT: { name: "輕巧型", note: "小型模組、轉接器" },
-  INDUSTRIAL: { name: "工業型", note: "設備內安裝、較高強度" },
+  LIGHTWEIGHT: { name: "輕量型", note: "薄壁、螺絲固定，適合一般室內設備" },
+  SEALED: { name: "密封型", note: "整合密封結構，設計規格準備中" },
 };
 
 const initialConfig: Config = {
-  family: "DESKTOP",
-  ...FAMILY_PRESETS.DESKTOP,
-  cornerRadius: 6,
+  family: "LIGHTWEIGHT",
+  ...FAMILY_PRESETS.LIGHTWEIGHT,
   lid: "SCREW",
   seal: "NONE",
 };
@@ -196,6 +194,7 @@ function EnclosureCanvas({
     const l = config.length * scale;
     const w = config.width * scale;
     const h = config.height * scale;
+    const lidH = config.lidHeight * scale;
     const t = Math.max(config.wall * scale, 0.04);
     const baseMaterial = new THREE.MeshStandardMaterial({
       color: 0x3f4851,
@@ -245,31 +244,24 @@ function EnclosureCanvas({
     createBox(enclosure, [0.34, 0.22, 0.23], [pcbL / 2 - 0.08, pcbY + 0.13, 0.14], metalMaterial);
     createBox(enclosure, [0.46, 0.31, 0.36], [pcbL / 2 - 0.09, pcbY + 0.18, -0.25], darkMaterial);
 
-    const lidY = h + t * 0.55 + (exploded ? Math.max(0.65, h * 0.62) : 0);
-    const lid = createBox(enclosure, [l + t * 0.18, t * 1.1, w + t * 0.18], [0, lidY, 0], lidMaterial);
+    const lidBaseY = h + (exploded ? Math.max(0.65, h * 0.62) : 0);
+    const lidY = lidBaseY + lidH - t / 2;
+    const lid = createBox(enclosure, [l + t * 0.18, t, w + t * 0.18], [0, lidY, 0], lidMaterial);
     lid.rotation.y = exploded ? -0.04 : 0;
+    const lidWallH = Math.max(lidH - t, t);
+    const lidWallY = lidBaseY + lidWallH / 2;
+    createBox(enclosure, [l, lidWallH, t], [0, lidWallY, -w / 2 + t / 2], lidMaterial);
+    createBox(enclosure, [l, lidWallH, t], [0, lidWallY, w / 2 - t / 2], lidMaterial);
+    createBox(enclosure, [t, lidWallH, Math.max(w - 2 * t, t)], [-l / 2 + t / 2, lidWallY, 0], lidMaterial);
+    createBox(enclosure, [t, lidWallH, Math.max(w - 2 * t, t)], [l / 2 - t / 2, lidWallY, 0], lidMaterial);
 
-    if (config.seal === "GASKET") {
-      const gasketMat = new THREE.MeshStandardMaterial({ color: 0x29c5a6, roughness: 0.7 });
-      const gy = lidY - t * 0.72;
-      createBox(enclosure, [l - 2 * t, 0.035, 0.045], [0, gy, -w / 2 + 1.7 * t], gasketMat, false);
-      createBox(enclosure, [l - 2 * t, 0.035, 0.045], [0, gy, w / 2 - 1.7 * t], gasketMat, false);
-      createBox(enclosure, [0.045, 0.035, w - 3.4 * t], [-l / 2 + 1.7 * t, gy, 0], gasketMat, false);
-      createBox(enclosure, [0.045, 0.035, w - 3.4 * t], [l / 2 - 1.7 * t, gy, 0], gasketMat, false);
-    }
-
-    if (config.lid === "SCREW") {
-      const screwMat = new THREE.MeshStandardMaterial({ color: 0x1b232a, roughness: 0.24, metalness: 0.65 });
-      const inset = Math.max(2.2 * t, 0.15);
-      [[-l / 2 + inset, -w / 2 + inset], [l / 2 - inset, -w / 2 + inset], [-l / 2 + inset, w / 2 - inset], [l / 2 - inset, w / 2 - inset]].forEach(([x, z]) => {
-        const screw = new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.048, t * 1.25, 24), screwMat);
-        screw.position.set(x, lidY + t * 0.38, z);
-        enclosure.add(screw);
-      });
-    } else {
-      createBox(enclosure, [0.35, t * 1.7, 0.09], [0, lidY - t * 0.5, -w / 2], darkMaterial, false);
-      createBox(enclosure, [0.35, t * 1.7, 0.09], [0, lidY - t * 0.5, w / 2], darkMaterial, false);
-    }
+    const screwMat = new THREE.MeshStandardMaterial({ color: 0x1b232a, roughness: 0.24, metalness: 0.65 });
+    const inset = Math.max(2.2 * t, 0.15);
+    [[-l / 2 + inset, -w / 2 + inset], [l / 2 - inset, -w / 2 + inset], [-l / 2 + inset, w / 2 - inset], [l / 2 - inset, w / 2 - inset]].forEach(([x, z]) => {
+      const screw = new THREE.Mesh(new THREE.CylinderGeometry(0.048, 0.048, t * 1.25, 24), screwMat);
+      screw.position.set(x, lidY + t * 0.38, z);
+      enclosure.add(screw);
+    });
 
     const dimensionMaterial = new THREE.LineBasicMaterial({ color: 0x2d63d6, transparent: true, opacity: 0.78 });
     const makeMeasure = (points: THREE.Vector3[]) => {
@@ -278,7 +270,7 @@ function EnclosureCanvas({
     };
     makeMeasure([new THREE.Vector3(-l / 2, -0.01, w / 2 + 0.26), new THREE.Vector3(l / 2, -0.01, w / 2 + 0.26)]);
     makeMeasure([new THREE.Vector3(l / 2 + 0.26, -0.01, -w / 2), new THREE.Vector3(l / 2 + 0.26, -0.01, w / 2)]);
-    makeMeasure([new THREE.Vector3(-l / 2 - 0.22, 0, -w / 2), new THREE.Vector3(-l / 2 - 0.22, h, -w / 2)]);
+    makeMeasure([new THREE.Vector3(-l / 2 - 0.22, 0, -w / 2), new THREE.Vector3(-l / 2 - 0.22, h + lidH, -w / 2)]);
 
     const resize = () => {
       const rect = mount.getBoundingClientRect();
@@ -336,33 +328,23 @@ export function EnclosureConfigurator() {
   const internal = useMemo(() => ({
     length: Math.max(0, config.length - config.wall * 2),
     width: Math.max(0, config.width - config.wall * 2),
-    height: Math.max(0, config.height - config.wall - (config.seal === "GASKET" ? 2.5 : 1.5)),
+    height: Math.max(0, config.height - config.wall),
   }), [config]);
 
   const payload = useMemo(() => ({
-    schema_version: "1.0",
-    template_id: `CASE_${config.family}`,
-    units: "mm",
-    parameters: {
-      CASE_L: config.length,
-      CASE_W: config.width,
-      CASE_H: config.height,
-      WALL_T: config.wall,
-      CORNER_R: config.cornerRadius,
-      LID_TYPE: config.lid,
-      SEAL_TYPE: config.seal,
-    },
-    calculated: {
-      INNER_L: Number(internal.length.toFixed(1)),
-      INNER_W: Number(internal.width.toFixed(1)),
-      INNER_H: Number(internal.height.toFixed(1)),
-    },
-    next_step: "MANUAL_CUTOUT_AND_PCB_FIXTURE",
-  }), [config, internal]);
+    CASE_L: config.length,
+    CASE_W: config.width,
+    CASE_H: config.height,
+    WALL_T: config.wall,
+    LID_H: config.lidHeight,
+    LH: config.screwThickness,
+    CASE_R: config.cornerRadius,
+  }), [config]);
 
   const update = <K extends keyof Config>(key: K, value: Config[K]) => setConfig((current) => ({ ...current, [key]: value }));
 
   const selectFamily = (family: CaseFamily) => {
+    if (family === "SEALED") return;
     setConfig((current) => ({ ...current, family, ...FAMILY_PRESETS[family] }));
   };
 
@@ -416,46 +398,28 @@ export function EnclosureConfigurator() {
                   type="button"
                   className={`family-option ${config.family === family ? "selected" : ""}`}
                   onClick={() => selectFamily(family)}
+                  disabled={family === "SEALED"}
                 >
                   <span className="family-icon"><Box size={20} /></span>
                   <span><strong>{FAMILY_LABELS[family].name}</strong><small>{FAMILY_LABELS[family].note}</small></span>
                   {config.family === family && <Check className="selected-check" size={17} />}
+                  {family === "SEALED" && <em className="coming-soon">規劃中</em>}
                 </button>
               ))}
+            </div>
+            <div className="fixed-specs" aria-label="輕量型固定設計規格">
+              <span><small>固定壁厚</small><strong>2.4 mm</strong></span>
+              <span><small>固定圓角</small><strong>R4.5</strong></span>
+              <span><small>上蓋方式</small><strong>螺絲固定</strong></span>
             </div>
           </section>
 
           <section className="form-section">
             <div className="section-title"><span>02</span><div><h2>外觀尺寸</h2><p>先填外殼外部最大尺寸</p></div></div>
-            <NumberControl label="長度 L" value={config.length} min={60} max={220} onChange={(value) => update("length", value)} />
-            <NumberControl label="寬度 W" value={config.width} min={45} max={160} onChange={(value) => update("width", value)} />
-            <NumberControl label="高度 H" value={config.height} min={20} max={90} onChange={(value) => update("height", value)} />
-          </section>
-
-          <section className="form-section compact-section">
-            <div className="section-title"><span>03</span><div><h2>結構設定</h2><p>影響強度與內部空間</p></div></div>
-            <NumberControl label="壁厚" value={config.wall} min={1.6} max={4} step={0.2} onChange={(value) => update("wall", value)} />
-            <NumberControl label="外角半徑" value={config.cornerRadius} min={2} max={12} onChange={(value) => update("cornerRadius", value)} />
-
-            <fieldset className="segmented-field">
-              <legend>上蓋方式</legend>
-              <div className="segmented-control">
-                <button type="button" className={config.lid === "SCREW" ? "selected" : ""} onClick={() => update("lid", "SCREW")}>螺絲固定</button>
-                <button type="button" className={config.lid === "SNAP" ? "selected" : ""} onClick={() => update("lid", "SNAP")}>卡扣上蓋</button>
-              </div>
-            </fieldset>
-
-            <fieldset className="segmented-field">
-              <legend>密封需求 <span className="help-dot" title="密封結構仍需依開孔與製程做最後驗證">?</span></legend>
-              <div className="seal-options">
-                <button type="button" className={config.seal === "NONE" ? "selected" : ""} onClick={() => update("seal", "NONE")}>
-                  <EyeOff size={18} /><span><strong>一般防塵</strong><small>無額外密封圈</small></span>
-                </button>
-                <button type="button" className={config.seal === "GASKET" ? "selected" : ""} onClick={() => update("seal", "GASKET")}>
-                  <ShieldCheck size={18} /><span><strong>密封圈預留</strong><small>預留膠條溝槽</small></span>
-                </button>
-              </div>
-            </fieldset>
+            <NumberControl label="長度 CASE_L" value={config.length} min={50} max={120} onChange={(value) => update("length", value)} />
+            <NumberControl label="寬度 CASE_W" value={config.width} min={50} max={120} onChange={(value) => update("width", value)} />
+            <NumberControl label="本體高度 CASE_H" value={config.height} min={5} max={100} onChange={(value) => update("height", value)} />
+            <NumberControl label="上蓋高度 LID_H" value={config.lidHeight} min={8} max={50} onChange={(value) => update("lidHeight", value)} />
           </section>
         </aside>
 
@@ -463,7 +427,7 @@ export function EnclosureConfigurator() {
           <div className="preview-head">
             <div>
               <p className="eyebrow">LIVE 3D PREVIEW</p>
-              <h2>{FAMILY_LABELS[config.family].name}外殼 <span>{config.length} × {config.width} × {config.height} mm</span></h2>
+              <h2>{FAMILY_LABELS[config.family].name}外殼 <span>{config.length} × {config.width} × {config.height} mm ＋ 上蓋 {config.lidHeight} mm</span></h2>
             </div>
             <div className="view-actions">
               <button type="button" className={transparent ? "active" : ""} onClick={() => setTransparent((value) => !value)} title="切換透明外殼">
@@ -481,14 +445,15 @@ export function EnclosureConfigurator() {
             <div className="dimension-chip chip-l">L {config.length}</div>
             <div className="dimension-chip chip-w">W {config.width}</div>
             <div className="dimension-chip chip-h">H {config.height}</div>
+            <div className="dimension-chip chip-lid">LID_H {config.lidHeight}</div>
             <div className="drag-hint"><RotateCcw size={14} /> 拖曳旋轉 · 滾輪縮放</div>
             <div className="preview-badge"><Sparkles size={14} /> 即時參數模型</div>
           </div>
 
           <div className="spec-strip">
-            <div><span>外部尺寸</span><strong>{config.length} × {config.width} × {config.height}</strong><small>mm</small></div>
+            <div><span>本體外部尺寸</span><strong>{config.length} × {config.width} × {config.height}</strong><small>mm</small></div>
             <div><span>內部可用空間</span><strong>{internal.length.toFixed(1)} × {internal.width.toFixed(1)} × {internal.height.toFixed(1)}</strong><small>mm</small></div>
-            <div><span>目前結構</span><strong>{config.lid === "SCREW" ? "4 點螺絲" : "雙側卡扣"}</strong><small>{config.seal === "GASKET" ? "＋ 密封圈槽" : "標準接合"}</small></div>
+            <div><span>固定結構</span><strong>輕量型・4 點螺絲</strong><small>壁厚 2.4・R4.5</small></div>
           </div>
 
           <div className="preview-footer">
@@ -508,7 +473,7 @@ export function EnclosureConfigurator() {
           <h2>設計參數</h2>
           <p>送出後會以這組欄位建立 SolidWorks 母版副本。</p>
           <div className="parameter-table">
-            {Object.entries(payload.parameters).map(([key, value]) => (
+            {Object.entries(payload).map(([key, value]) => (
               <div key={key}><code>{key}</code><span>{String(value)}{typeof value === "number" ? " mm" : ""}</span></div>
             ))}
           </div>
