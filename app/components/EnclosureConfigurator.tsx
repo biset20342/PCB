@@ -21,6 +21,17 @@ type LidType = "SCREW" | "SNAP";
 type SealType = "NONE" | "GASKET";
 type CaseFamily = "LIGHTWEIGHT" | "SEALED";
 
+type StepMeshPayload = {
+  name: string;
+  color?: number[];
+  position: number[];
+  index: number[];
+};
+
+type StepModelPayload = {
+  meshes: StepMeshPayload[];
+};
+
 type Config = {
   family: CaseFamily;
   length: number;
@@ -35,7 +46,7 @@ type Config = {
 };
 
 const FAMILY_PRESETS: Record<CaseFamily, Pick<Config, "length" | "width" | "height" | "lidHeight" | "wall" | "screwThickness" | "cornerRadius">> = {
-  LIGHTWEIGHT: { length: 80, width: 60, height: 30, lidHeight: 12, wall: 2.4, screwThickness: 2.4, cornerRadius: 4.5 },
+  LIGHTWEIGHT: { length: 60, width: 50, height: 20.8, lidHeight: 8, wall: 2.4, screwThickness: 2.4, cornerRadius: 4.5 },
   SEALED: { length: 80, width: 60, height: 36, lidHeight: 14, wall: 3.0, screwThickness: 3.0, cornerRadius: 6 },
 };
 
@@ -50,6 +61,32 @@ const initialConfig: Config = {
   lid: "SCREW",
   seal: "NONE",
 };
+
+let lightweightModelPromise: Promise<StepModelPayload> | null = null;
+
+function loadLightweightModel() {
+  if (!lightweightModelPromise) {
+    lightweightModelPromise = fetch("/models/fa01a-lightweight.json").then((response) => {
+      if (!response.ok) throw new Error("Unable to load FA01A_S reference model");
+      return response.json() as Promise<StepModelPayload>;
+    });
+  }
+  return lightweightModelPromise;
+}
+
+function remapPreservingEnds(
+  value: number,
+  nominal: number,
+  target: number,
+  fixedStart: number,
+  fixedEnd = fixedStart,
+) {
+  if (value <= fixedStart) return value;
+  if (value >= nominal - fixedEnd) return value + (target - nominal);
+  const sourceSpan = nominal - fixedStart - fixedEnd;
+  const targetSpan = target - fixedStart - fixedEnd;
+  return fixedStart + (value - fixedStart) * (targetSpan / sourceSpan);
+}
 
 function NumberControl({
   label,
@@ -97,107 +134,6 @@ function NumberControl({
       <div className="range-bounds"><span>{min}</span><span>{max}</span></div>
     </div>
   );
-}
-
-function addEdges(mesh: THREE.Mesh, color = 0x59616d) {
-  const lines = new THREE.LineSegments(
-    new THREE.EdgesGeometry(mesh.geometry, 24),
-    new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.34 }),
-  );
-  mesh.add(lines);
-}
-
-function roundedRectPath(
-  path: THREE.Path | THREE.Shape,
-  width: number,
-  depth: number,
-  radius: number,
-  clockwise = false,
-) {
-  const halfW = width / 2;
-  const halfD = depth / 2;
-  const r = Math.min(radius, halfW - 0.001, halfD - 0.001);
-
-  if (clockwise) {
-    path.moveTo(-halfW + r, -halfD);
-    path.quadraticCurveTo(-halfW, -halfD, -halfW, -halfD + r);
-    path.lineTo(-halfW, halfD - r);
-    path.quadraticCurveTo(-halfW, halfD, -halfW + r, halfD);
-    path.lineTo(halfW - r, halfD);
-    path.quadraticCurveTo(halfW, halfD, halfW, halfD - r);
-    path.lineTo(halfW, -halfD + r);
-    path.quadraticCurveTo(halfW, -halfD, halfW - r, -halfD);
-    path.lineTo(-halfW + r, -halfD);
-    return;
-  }
-
-  path.moveTo(-halfW + r, -halfD);
-  path.lineTo(halfW - r, -halfD);
-  path.quadraticCurveTo(halfW, -halfD, halfW, -halfD + r);
-  path.lineTo(halfW, halfD - r);
-  path.quadraticCurveTo(halfW, halfD, halfW - r, halfD);
-  path.lineTo(-halfW + r, halfD);
-  path.quadraticCurveTo(-halfW, halfD, -halfW, halfD - r);
-  path.lineTo(-halfW, -halfD + r);
-  path.quadraticCurveTo(-halfW, -halfD, -halfW + r, -halfD);
-}
-
-function createRoundedPart(
-  group: THREE.Group,
-  width: number,
-  depth: number,
-  height: number,
-  y: number,
-  radius: number,
-  material: THREE.Material,
-  wall = 0,
-  edges = true,
-) {
-  const shape = new THREE.Shape();
-  roundedRectPath(shape, width, depth, radius);
-  if (wall > 0) {
-    const innerW = Math.max(width - wall * 2, 0.02);
-    const innerD = Math.max(depth - wall * 2, 0.02);
-    const hole = new THREE.Path();
-    roundedRectPath(hole, innerW, innerD, Math.max(radius - wall, 0.015), true);
-    shape.holes.push(hole);
-  }
-
-  const bevel = Math.min(0.018, height * 0.14, radius * 0.16);
-  const geometry = new THREE.ExtrudeGeometry(shape, {
-    depth: Math.max(height - bevel * 2, 0.012),
-    bevelEnabled: true,
-    bevelSize: bevel,
-    bevelThickness: bevel,
-    bevelSegments: 3,
-    curveSegments: 24,
-  });
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.rotation.x = -Math.PI / 2;
-  mesh.position.y = y;
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  if (edges) addEdges(mesh);
-  group.add(mesh);
-  return mesh;
-}
-
-function createCylinder(
-  group: THREE.Group,
-  radiusTop: number,
-  radiusBottom: number,
-  height: number,
-  position: [number, number, number],
-  material: THREE.Material,
-  edges = true,
-) {
-  const mesh = new THREE.Mesh(new THREE.CylinderGeometry(radiusTop, radiusBottom, height, 36), material);
-  mesh.position.set(...position);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  if (edges) addEdges(mesh);
-  group.add(mesh);
-  return mesh;
 }
 
 function EnclosureCanvas({
@@ -266,123 +202,83 @@ function EnclosureCanvas({
 
     const enclosure = new THREE.Group();
     scene.add(enclosure);
+    let disposed = false;
 
     const scale = 0.022;
     const l = config.length * scale;
     const w = config.width * scale;
     const h = config.height * scale;
     const lidH = config.lidHeight * scale;
-    const t = Math.max(config.wall * scale, 0.04);
-    const bodyMaterial = new THREE.MeshStandardMaterial({
-      color: 0x7d8596,
-      roughness: 0.5,
-      metalness: 0.03,
-      transparent,
-      opacity: transparent ? 0.25 : 1,
-      side: THREE.DoubleSide,
-    });
-    const lidSideMaterial = new THREE.MeshStandardMaterial({
-      color: 0x737b8c,
-      roughness: 0.46,
-      metalness: 0.04,
-      transparent,
-      opacity: transparent ? 0.28 : 1,
-      side: THREE.DoubleSide,
-    });
-    const lidTopMaterial = new THREE.MeshStandardMaterial({
-      color: 0x4e5564,
-      roughness: 0.52,
-      metalness: 0.035,
-      transparent,
-      opacity: transparent ? 0.38 : 1,
-      side: THREE.DoubleSide,
-    });
-    const insideMaterial = new THREE.MeshStandardMaterial({
-      color: 0x424957,
-      roughness: 0.58,
-      transparent,
-      opacity: transparent ? 0.3 : 1,
-    });
-    const recessMaterial = new THREE.MeshStandardMaterial({
-      color: 0x252b34,
-      roughness: 0.38,
-      metalness: 0.15,
-      transparent,
-      opacity: transparent ? 0.52 : 1,
-    });
-    const rimMaterial = new THREE.MeshStandardMaterial({
-      color: 0x323946,
-      roughness: 0.5,
-      transparent,
-      opacity: transparent ? 0.48 : 1,
-    });
-
-    const radius = Math.min(config.cornerRadius * scale, Math.min(l, w) * 0.16);
-    const floorT = Math.min(t, h * 0.32);
-    const flangeH = Math.min(t * 0.9, h * 0.25);
-    const flangeW = Math.max(t * 2.5, radius * 1.42);
-    const bossRadius = Math.max(t * 1.75, radius * 0.92);
-    const holeRadius = bossRadius * 0.31;
-    const inset = Math.max(radius, bossRadius * 1.02);
-    const cornerPositions: [number, number][] = [
-      [-l / 2 + inset, -w / 2 + inset],
-      [l / 2 - inset, -w / 2 + inset],
-      [-l / 2 + inset, w / 2 - inset],
-      [l / 2 - inset, w / 2 - inset],
-    ];
-
-    // Lower shell: rounded floor, continuous wall and the wide top flange seen in the CAD reference.
-    createRoundedPart(enclosure, l, w, floorT, 0, radius, bodyMaterial);
-    createRoundedPart(enclosure, l, w, Math.max(h - floorT, t), floorT, radius, bodyMaterial, t);
-    createRoundedPart(enclosure, l, w, flangeH, Math.max(h - flangeH, floorT), radius, bodyMaterial, flangeW);
-
-    const innerL = Math.max(l - t * 2.2, 0.08);
-    const innerW = Math.max(w - t * 2.2, 0.08);
-    createRoundedPart(enclosure, innerL, innerW, 0.018, floorT + 0.004, Math.max(radius - t, 0.025), insideMaterial, 0, false);
-
-    // Four integrated corner towers and their pilot holes.
-    cornerPositions.forEach(([x, z]) => {
-      createCylinder(enclosure, bossRadius, bossRadius, Math.max(h - floorT, 0.04), [x, floorT + Math.max(h - floorT, 0.04) / 2, z], bodyMaterial);
-      createCylinder(enclosure, holeRadius, holeRadius, 0.025, [x, h + 0.008, z], recessMaterial, false);
-      const holeLip = new THREE.Mesh(new THREE.TorusGeometry(holeRadius * 1.42, 0.014, 10, 32), rimMaterial);
-      holeLip.rotation.x = Math.PI / 2;
-      holeLip.position.set(x, h + 0.018, z);
-      enclosure.add(holeLip);
-    });
-
-    // Raised locating tongue around the opening, matching the stop/rabbet in the transparent CAD view.
-    const tongueOuterL = Math.max(l - flangeW * 1.55, 0.1);
-    const tongueOuterW = Math.max(w - flangeW * 1.55, 0.1);
-    createRoundedPart(
-      enclosure,
-      tongueOuterL,
-      tongueOuterW,
-      0.038,
-      h + 0.005,
-      Math.max(radius - flangeW * 0.52, 0.025),
-      rimMaterial,
-      0.035,
-    );
-
-    // Lid is a separate rounded cap with a downward skirt and four flush countersunk recesses.
+    const explodedGap = exploded ? Math.max(18, config.height * 0.65) : 0;
+    const baseGroup = new THREE.Group();
     const lidGroup = new THREE.Group();
-    const lidBaseY = h + (exploded ? Math.max(0.62, h * 0.72) : 0);
-    lidGroup.position.y = lidBaseY;
     lidGroup.rotation.y = exploded ? -0.035 : 0;
-    enclosure.add(lidGroup);
+    enclosure.add(baseGroup, lidGroup);
 
-    const lidWallH = Math.max(lidH - t, t * 0.65);
-    createRoundedPart(lidGroup, l + 0.018, w + 0.018, lidWallH, 0, radius + 0.009, lidSideMaterial, t);
-    createRoundedPart(lidGroup, l + 0.018, w + 0.018, t, lidWallH, radius + 0.009, lidTopMaterial);
+    loadLightweightModel().then((model) => {
+      if (disposed) return;
 
-    const lidTopY = lidWallH + t;
-    cornerPositions.forEach(([x, z]) => {
-      createCylinder(lidGroup, bossRadius * 0.62, bossRadius * 0.88, 0.038, [x, lidTopY + 0.008, z], lidSideMaterial);
-      createCylinder(lidGroup, holeRadius * 1.02, holeRadius * 1.02, 0.044, [x, lidTopY + 0.025, z], recessMaterial, false);
-      const counterboreEdge = new THREE.Mesh(new THREE.TorusGeometry(bossRadius * 0.68, 0.012, 10, 32), rimMaterial);
-      counterboreEdge.rotation.x = Math.PI / 2;
-      counterboreEdge.position.set(x, lidTopY + 0.047, z);
-      lidGroup.add(counterboreEdge);
+      model.meshes.forEach((source, meshIndex) => {
+        const isLid = meshIndex === 1;
+        const sourcePositions = source.position;
+        const transformed = new Float32Array(sourcePositions.length);
+
+        for (let index = 0; index < sourcePositions.length; index += 3) {
+          const sourceX = sourcePositions[index];
+          const sourceY = sourcePositions[index + 1];
+          const sourceZ = sourcePositions[index + 2];
+          const mappedX = remapPreservingEnds(sourceX, 60, config.length, 10, 10);
+          const mappedDepth = remapPreservingEnds(sourceY, 50, config.width, 10, 10);
+          let mappedHeight: number;
+
+          if (isLid) {
+            const localLidZ = sourceZ - 20;
+            mappedHeight = config.height - 0.8
+              + remapPreservingEnds(localLidZ, 8, config.lidHeight, 2.4, 2.4)
+              + explodedGap;
+          } else {
+            mappedHeight = remapPreservingEnds(sourceZ, 20.8, config.height, 2.4, 0.8);
+          }
+
+          transformed[index] = (mappedX - config.length / 2) * scale;
+          transformed[index + 1] = mappedHeight * scale;
+          transformed[index + 2] = -(mappedDepth - config.width / 2) * scale;
+        }
+
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute("position", new THREE.BufferAttribute(transformed, 3));
+        geometry.setIndex(source.index);
+        geometry.computeVertexNormals();
+        geometry.computeBoundingSphere();
+
+        const material = new THREE.MeshStandardMaterial({
+          color: isLid ? 0x555c6a : 0x7d87a1,
+          roughness: isLid ? 0.48 : 0.54,
+          metalness: 0.025,
+          transparent,
+          opacity: transparent ? (isLid ? 0.29 : 0.24) : 1,
+          depthWrite: !transparent,
+          side: transparent ? THREE.DoubleSide : THREE.FrontSide,
+        });
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.name = source.name;
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+
+        const edgeGeometry = new THREE.EdgesGeometry(geometry, 28);
+        const edges = new THREE.LineSegments(
+          edgeGeometry,
+          new THREE.LineBasicMaterial({
+            color: 0x39414e,
+            transparent: true,
+            opacity: transparent ? 0.55 : 0.38,
+          }),
+        );
+        mesh.add(edges);
+        (isLid ? lidGroup : baseGroup).add(mesh);
+      });
+    }).catch((error) => {
+      console.error("Failed to load FA01A_S model", error);
     });
 
     const dimensionMaterial = new THREE.LineBasicMaterial({ color: 0x2d63d6, transparent: true, opacity: 0.78 });
@@ -413,6 +309,7 @@ function EnclosureCanvas({
     animate();
 
     return () => {
+      disposed = true;
       cancelAnimationFrame(frame);
       observer.disconnect();
       controls.dispose();
@@ -540,8 +437,8 @@ export function EnclosureConfigurator() {
             <div className="section-title"><span>02</span><div><h2>外觀尺寸</h2><p>先填外殼外部最大尺寸</p></div></div>
             <NumberControl label="長度 CASE_L" value={config.length} min={50} max={120} onChange={(value) => update("length", value)} />
             <NumberControl label="寬度 CASE_W" value={config.width} min={50} max={120} onChange={(value) => update("width", value)} />
-            <NumberControl label="本體高度 CASE_H" value={config.height} min={5} max={100} onChange={(value) => update("height", value)} />
-            <NumberControl label="上蓋高度 LID_H" value={config.lidHeight} min={8} max={50} onChange={(value) => update("lidHeight", value)} />
+            <NumberControl label="本體高度 CASE_H" value={config.height} min={5} max={100} step={0.1} onChange={(value) => update("height", value)} />
+            <NumberControl label="上蓋高度 LID_H" value={config.lidHeight} min={8} max={50} step={0.1} onChange={(value) => update("lidHeight", value)} />
           </section>
         </aside>
 
@@ -569,13 +466,13 @@ export function EnclosureConfigurator() {
             <div className="dimension-chip chip-h">H {config.height}</div>
             <div className="dimension-chip chip-lid">LID_H {config.lidHeight}</div>
             <div className="drag-hint"><RotateCcw size={14} /> 拖曳旋轉 · 滾輪縮放</div>
-            <div className="preview-badge"><Sparkles size={14} /> 即時參數模型</div>
+            <div className="preview-badge"><Sparkles size={14} /> FA01A_S STEP 母版</div>
           </div>
 
           <div className="spec-strip">
             <div><span>本體外部尺寸</span><strong>{config.length} × {config.width} × {config.height}</strong><small>mm</small></div>
             <div><span>內部可用空間</span><strong>{internal.length.toFixed(1)} × {internal.width.toFixed(1)} × {internal.height.toFixed(1)}</strong><small>mm</small></div>
-            <div><span>固定結構</span><strong>輕量型・4 點螺絲</strong><small>壁厚 2.4・R4.5</small></div>
+            <div><span>固定結構</span><strong>FA01A_S・4 點沉頭孔</strong><small>壁厚 2.4・R4.5</small></div>
           </div>
 
           <div className="preview-footer">
