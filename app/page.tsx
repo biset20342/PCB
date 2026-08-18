@@ -209,20 +209,18 @@ export default function Home() {
         ) : (
           <>
             {step === 1 && (
-              <section className="hero-grid">
+              <section className="hero-grid type-selection-only">
                 <div className="choice-panel">
-                  <StepHeader number={1} kicker="開始訂製" title="這個外殼，會用在哪裡？" description="選擇最接近的使用環境，我們會替你準備合適的設計與製作選項。" />
+                  <StepHeader number={1} kicker="外殼類型" title="選擇使用環境" description="選擇最接近的使用環境，我們會替你準備合適的設計與製作選項。" />
                   <div className="type-options" role="radiogroup" aria-label="外殼類型">
                     <button className={`type-card ${enclosureType === "standard" ? "selected" : ""}`} onClick={() => setEnclosureType("standard")} role="radio" aria-checked={enclosureType === "standard"}>
-                      <span className="card-icon cube-icon"><i /></span><span className="card-copy"><strong>一般型外殼</strong><small>適合室內、桌面與一般設備環境</small><span className="tags"><i>PLA</i><i>ASA</i><i>鋁合金</i></span></span><span className="radio-dot" />
+                      <span className="card-icon cube-icon"><i /></span><span className="card-copy"><strong>一般型</strong><small>適合室內乾燥的環境，最經濟的成本選項</small><span className="tags"><i>3D 列印</i><i>鋁合金 CNC</i></span></span><span className="radio-dot" />
                     </button>
                     <button className={`type-card ${enclosureType === "sealed" ? "selected" : ""}`} onClick={() => setEnclosureType("sealed")} role="radio" aria-checked={enclosureType === "sealed"}>
-                      <span className="card-icon seal-icon">◇</span><span className="card-copy"><strong>密封型外殼</strong><small>適合潮濕、粉塵或戶外使用環境</small><span className="tags"><i>6 系列鋁合金 CNC</i></span></span><span className="radio-dot" />
+                      <span className="card-icon seal-icon">◇</span><span className="card-copy"><strong>密封型</strong><small>採用密封結構，適合潮濕、粉塵的環境</small><span className="tags"><i>鋁合金 CNC</i></span></span><span className="radio-dot" />
                     </button>
                   </div>
-                  <aside className="helper-note"><span>i</span><p><strong>不確定該選哪一種？</strong>一般室內設備建議選擇一般型；密封型目前僅提供鋁合金 CNC 製作。</p></aside>
                 </div>
-                <div className={`visual-panel ${enclosureType}`}><div className="visual-label"><span>即時預覽</span><b>{enclosureType === "standard" ? "一般型" : "密封型"}</b></div><PreviewModel sealed={enclosureType === "sealed"} /><div className="model-caption"><span><b>{enclosureType === "sealed" ? "1" : "3"}</b> 種製作方式</span><span><b>6</b> 面自由客製</span><span><b>1–3</b> 張照片即可</span></div></div>
               </section>
             )}
 

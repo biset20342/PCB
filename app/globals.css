@@ -50,6 +50,11 @@ button { color: inherit; }
 
 .hero-grid { flex: 1; min-height: 600px; display: grid; grid-template-columns: 55% 45%; }
 .choice-panel { padding: clamp(52px, 6vw, 90px) clamp(42px, 7vw, 115px); background: #fff; }
+.hero-grid.type-selection-only { display: block; min-height: 650px; background: #fff; }
+.type-selection-only .choice-panel { min-height: 650px; display: flex; flex-direction: column; justify-content: center; padding-left: clamp(42px, 14vw, 220px); padding-right: clamp(42px, 14vw, 220px); }
+.type-selection-only .step-heading,
+.type-selection-only .type-options { width: min(100%, 720px); max-width: 720px; }
+.type-selection-only .step-heading h1 { max-width: 720px; }
 .eyebrow { display: flex; align-items: center; gap: 11px; text-transform: uppercase; font-size: 12px; font-weight: 800; letter-spacing: .15em; color: var(--green); }
 .eyebrow span { display: grid; place-items: center; width: 28px; height: 22px; background: var(--lime); color: #263b2f; border-radius: 2px; letter-spacing: 0; }
 h1 { margin: 21px 0 15px; font-size: clamp(40px, 4.1vw, 64px); line-height: 1.08; letter-spacing: -.055em; font-weight: 850; }
@@ -135,6 +140,8 @@ h1 { margin: 21px 0 15px; font-size: clamp(40px, 4.1vw, 64px); line-height: 1.08
   .bottom-bar { position: sticky; bottom: 0; z-index: 10; padding: 12px 16px; }
   .bottom-bar p { display: none; }
   .primary-button { width: 100%; }
+  .type-selection-only .choice-panel { min-height: 590px; padding: 42px 18px; }
+  .hero-grid.type-selection-only { min-height: 590px; }
 }
 
 /* Complete wizard */
