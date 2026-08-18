@@ -8,7 +8,7 @@ type Face = "top" | "bottom" | "front" | "back" | "left" | "right";
 type Feature = { id: number; kind: "opening" | "connector" | "thermal"; label: string };
 type Hole = { x: number; y: number; diameter: number };
 
-const steps = ["外殼類型", "PCB 資料", "確認尺寸", "六面客製", "製作與報價", "確認送出"];
+const steps = ["外殼類型", "PCB 資料", "確認 PCB 尺寸", "確認外殼尺寸", "六面客製", "製作與報價", "確認送出"];
 const faceLabels: Record<Face, string> = { top: "上面", bottom: "下面", front: "前面", back: "後面", left: "左面", right: "右面" };
 const emptyFaces: Record<Face, Feature[]> = { top: [], bottom: [], front: [], back: [], left: [], right: [] };
 const methodLabels: Record<Method, string> = { pla: "PLA 3D 列印", asa: "ASA 3D 列印", cnc: "6 系列鋁合金 CNC" };
@@ -24,6 +24,33 @@ function PreviewModel({ sealed = false, compact = false, features = 0 }: { seale
         <div className="case-base"><span /><span /></div>
       </div>
       <div className="orbit-hint">↻ 拖曳查看外殼示意</div>
+    </div>
+  );
+}
+
+function PcbPlanPreview({ width, depth, holeDiameter, holes }: { width: number; depth: number; holeDiameter: number; holes: Hole[] }) {
+  const safeWidth = Math.max(width, 1);
+  const safeDepth = Math.max(depth, 1);
+  return (
+    <div className="pcb-plan-wrap">
+      <div className="preview-badge"><i /> 平面即時預覽</div>
+      <div className="pcb-plan-stage">
+        <div className="pcb-plan-board" style={{ aspectRatio: `${safeWidth} / ${safeDepth}` }}>
+          <span className="pcb-chip main-chip" /><span className="pcb-chip port-chip" /><span className="pcb-chip small-chip" />
+          <span className="pcb-trace trace-one" /><span className="pcb-trace trace-two" /><b>PCB</b>
+          {holes.map((hole, index) => (
+            <i
+              className="pcb-plan-hole"
+              key={`${index}-${hole.x}-${hole.y}`}
+              style={{ left: `${Math.min(97, Math.max(3, (hole.x / safeWidth) * 100))}%`, bottom: `${Math.min(97, Math.max(3, (hole.y / safeDepth) * 100))}%` }}
+              title={`H${index + 1} Ø${hole.diameter || holeDiameter} mm`}
+            />
+          ))}
+          <span className="dimension-line width-line"><em>{width} mm</em></span>
+          <span className="dimension-line depth-line"><em>{depth} mm</em></span>
+        </div>
+      </div>
+      <div className="pcb-plan-legend"><span><i /> PCB 外框</span><span><i /> 孔徑 Ø {holeDiameter} mm</span></div>
     </div>
   );
 }
@@ -46,7 +73,7 @@ export default function Home() {
   const [fileNames, setFileNames] = useState<string[]>([]);
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
   const [analyzing, setAnalyzing] = useState(false);
-  const [pcb, setPcb] = useState({ width: 68.6, depth: 53.3, thickness: 1.6, componentHeight: 14 });
+  const [pcb, setPcb] = useState({ width: 68.6, depth: 53.3, thickness: 1.6, componentHeight: 14, holeDiameter: 3.2 });
   const [holes, setHoles] = useState<Hole[]>([
     { x: 14, y: 2.5, diameter: 3.2 }, { x: 66, y: 7.6, diameter: 3.2 },
     { x: 66, y: 35.6, diameter: 3.2 }, { x: 15.2, y: 50.8, diameter: 3.2 },
@@ -98,7 +125,7 @@ export default function Home() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const next = () => goTo(Math.min(6, step + 1));
+  const next = () => goTo(Math.min(7, step + 1));
   const back = () => goTo(Math.max(1, step - 1));
 
   const handleFiles = (list: FileList | null) => {
@@ -113,7 +140,7 @@ export default function Home() {
   const analyze = () => {
     setAnalyzing(true);
     setTimeout(() => {
-      setPcb({ width: 68.6, depth: 53.3, thickness: 1.6, componentHeight: 14 });
+      setPcb({ width: 68.6, depth: 53.3, thickness: 1.6, componentHeight: 14, holeDiameter: 3.2 });
       setEnclosure({ width: 78.6, depth: 63.3, height: 24 });
       setAnalyzing(false);
       goTo(3);
@@ -122,7 +149,7 @@ export default function Home() {
 
   const startCustom = () => {
     setInputMode("custom");
-    setPcb({ width: 100, depth: 70, thickness: 1.6, componentHeight: 15 });
+    setPcb({ width: 100, depth: 70, thickness: 1.6, componentHeight: 15, holeDiameter: 3.2 });
     setEnclosure({ width: 110, depth: 80, height: 26 });
     setHoles([]);
     goTo(3);
@@ -227,10 +254,10 @@ export default function Home() {
             {step === 2 && (
               <section className="content-page upload-page">
                 <div className="page-copy">
-                  <StepHeader number={2} kicker="提供 PCB" title="把板子交給我們看" description="上傳 1–3 張清楚照片，我們會模擬辨識 PCB 尺寸與固定孔；也可以完全手動設定。" />
+                  <StepHeader number={2} kicker="PCB 資料" title="確認 PCB 板孔位尺寸" description="上傳量測照片，由 AI 協助辨識 PCB 外形尺寸；也可以選擇完全手動設定。" />
                   <div className="mode-grid">
                     <button className={`mode-card ${inputMode === "photo" ? "selected" : ""}`} onClick={() => uploadRef.current?.click()}>
-                      <span className="mode-no">A</span><b>上傳 PCB 照片</b><small>推薦：正面俯拍＋卡尺量測照</small><strong>選擇照片 <span>↗</span></strong>
+                      <span className="mode-no">A</span><b>上傳照片 AI 輔助辨識</b><small>請提供 3 張照片：PCB 正面照片並搭配量尺</small><strong>選擇照片 <span>↗</span></strong>
                     </button>
                     <button className={`mode-card ${inputMode === "custom" ? "selected" : ""}`} onClick={startCustom}>
                       <span className="mode-no">B</span><b>完全自訂尺寸</b><small>沒有照片也沒關係，直接輸入資料</small><strong>開始手動設定 <span>→</span></strong>
@@ -245,7 +272,12 @@ export default function Home() {
                     </div>
                   )}
                   {analyzing && <div className="analysis-progress"><i /><span>正在定位板框與固定孔</span></div>}
-                  <aside className="green-guide"><b>拍照小提示</b><span>把 PCB 平放、保持鏡頭垂直，照片包含完整邊緣；若有卡尺量測照，評估會更可靠。</span></aside>
+                  <aside className="green-guide"><b>建議量測方式</b><span>請分別量測 PCB 的最大長度、最大寬度，以及任一較小特徵，讓 AI 能建立可靠的尺寸比例。</span></aside>
+                  <div className="measurement-examples" aria-label="PCB 拍照量測範例">
+                    <article><img src="/examples/pcb-max-length.jpg" alt="量測 PCB 最大長度範例" /><div><b>01　最大長度</b><span>量尺跨過板件最長的兩端</span></div></article>
+                    <article><img src="/examples/pcb-max-width.jpg" alt="量測 PCB 最大寬度範例" /><div><b>02　最大寬度</b><span>量尺跨過板件最寬的兩端</span></div></article>
+                    <article><img src="/examples/pcb-small-feature.jpg" alt="量測 PCB 較小特徵範例" /><div><b>03　較小特徵</b><span>任選一個清楚的小尺寸作為比例參考</span></div></article>
+                  </div>
                 </div>
                 <div className="upload-visual"><div className="photo-frame"><div className="scan-line" /><div className="flat-pcb"><i /><i /><i /><i /><b>PCB</b></div><span>AI ANALYSIS / MOCK</span></div></div>
               </section>
@@ -254,13 +286,23 @@ export default function Home() {
             {step === 3 && (
               <section className="content-page editor-page">
                 <div className="page-copy wide-copy">
-                  <StepHeader number={3} kicker="確認尺寸" title="確認我們理解得正確" description="這些數值會影響外殼是否裝得下。請檢查並直接修改，右側預覽會同步更新。" />
+                  <StepHeader number={3} kicker="確認 PCB 尺寸" title="確認最終尺寸結果" description="確認 PCB 的尺寸後，下一步會開始進行外殼尺寸設定。" />
                   <div className="form-section">
                     <div className="section-title"><b>PCB 基本尺寸</b><span>單位：mm</span></div>
-                    <div className="field-grid four">
-                      {([['width','長度'],['depth','寬度'],['thickness','厚度'],['componentHeight','最高元件']] as const).map(([key,label]) => <label key={key}><span>{label}</span><div><input type="number" step="0.1" value={pcb[key]} onChange={(e) => updatePcb(key, Number(e.target.value))} /><i>mm</i></div></label>)}
+                    <div className="field-grid five">
+                      {([['width','最大長度'],['depth','最大寬度'],['thickness','厚度'],['componentHeight','最高元件'],['holeDiameter','PCB 孔徑 Ø']] as const).map(([key,label]) => <label key={key}><span>{label}</span><div><input type="number" step="0.1" value={pcb[key]} onChange={(e) => updatePcb(key, Number(e.target.value))} /><i>mm</i></div></label>)}
                     </div>
                   </div>
+                  <aside className="green-guide"><b>請特別確認</b><span>AI 辨識尺寸可能產生誤差，為了達到最好的設計結果，請依據實務尺寸確認。</span></aside>
+                </div>
+                <div className="sticky-preview pcb-preview-panel"><PcbPlanPreview width={pcb.width} depth={pcb.depth} holeDiameter={pcb.holeDiameter} holes={holes} /><div className="dimension-readout"><span>PCB 最大尺寸</span><strong>{pcb.width} × {pcb.depth} mm</strong></div></div>
+              </section>
+            )}
+
+            {step === 4 && (
+              <section className="content-page editor-page enclosure-editor-page">
+                <div className="page-copy wide-copy">
+                  <StepHeader number={4} kicker="確認外殼尺寸" title="設定外殼與固定孔" description="系統已依 PCB 最大尺寸預留基本間隙，你可以在這裡確認外殼大小與固定孔位置。" />
                   <div className="form-section">
                     <div className="section-title"><b>外殼建議尺寸</b><span className="auto-tag">自動預留間隙</span></div>
                     <div className="field-grid three">
@@ -268,21 +310,21 @@ export default function Home() {
                     </div>
                   </div>
                   <div className="form-section holes-section">
-                    <div className="section-title"><b>固定孔位置</b><button onClick={() => setHoles((old) => [...old, { x: 10, y: 10, diameter: 3.2 }])}>＋ 新增固定孔</button></div>
+                    <div className="section-title"><b>固定孔位置</b><button onClick={() => setHoles((old) => [...old, { x: 10, y: 10, diameter: pcb.holeDiameter }])}>＋ 新增固定孔</button></div>
                     <div className="hole-head"><span>孔位</span><span>X</span><span>Y</span><span>孔徑 Ø</span><span /></div>
                     {holes.map((hole, index) => <div className="hole-row" key={index}><b>H{index + 1}</b>{(['x','y','diameter'] as const).map((key) => <input key={key} type="number" step="0.1" value={hole[key]} onChange={(e) => updateHole(index, key, Number(e.target.value))} />)}<button aria-label={`刪除固定孔 H${index + 1}`} onClick={() => setHoles((old) => old.filter((_, i) => i !== index))}>×</button></div>)}
-                    {holes.length === 0 && <p className="empty-row">目前沒有固定孔；你可以稍後新增。</p>}
+                    {holes.length === 0 && <p className="empty-row">目前沒有固定孔；你可以新增孔位，或直接進入下一步。</p>}
                   </div>
-                  <aside className="green-guide"><b>請特別確認</b><span>照片辨識為模擬結果。PCB 厚度、最高元件高度與孔徑，請依實物量測值調整。</span></aside>
+                  <aside className="green-guide"><b>外殼尺寸說明</b><span>建議尺寸包含基本裝配間隙；正式製作前仍會依材料與加工方式進行工程確認。</span></aside>
                 </div>
                 <div className="sticky-preview"><PreviewModel sealed={enclosureType === "sealed"} compact /><div className="dimension-readout"><span>外殼尺寸</span><strong>{enclosure.width} × {enclosure.depth} × {enclosure.height} mm</strong><small>PCB {pcb.width} × {pcb.depth} mm · {holes.length} 個固定孔</small></div></div>
               </section>
             )}
 
-            {step === 4 && (
+            {step === 5 && (
               <section className="customize-layout">
                 <div className="custom-sidebar">
-                  <StepHeader number={4} kicker="六面客製" title="點選你想修改的面" description="每一面都可以加入開口、接頭孔，或增加外殼散熱表面積。" />
+                  <StepHeader number={5} kicker="六面客製" title="點選你想修改的面" description="每一面都可以加入開口、接頭孔，或增加外殼散熱表面積。" />
                   <div className="face-grid">{(Object.keys(faceLabels) as Face[]).map((face) => <button key={face} className={selectedFace === face ? "selected" : ""} onClick={() => setSelectedFace(face)}><span>{faceLabels[face]}</span><b>{faces[face].length || "—"}</b></button>)}</div>
                   <aside className="green-guide"><b>目前編輯：{faceLabels[selectedFace]}</b><span>位置與尺寸在本 MVP 中以示意資料呈現，正式製作前仍會由工程人員確認。</span></aside>
                 </div>
@@ -304,10 +346,10 @@ export default function Home() {
               </section>
             )}
 
-            {step === 5 && (
+            {step === 6 && (
               <section className="content-page quote-page">
                 <div className="page-copy wide-copy">
-                  <StepHeader number={5} kicker="製作與報價" title="選擇你要的交付方式" description="你可以只取得設計檔，也可以交給我們製作。價格會隨材料、數量與客製內容即時估算。" />
+                  <StepHeader number={6} kicker="製作與報價" title="選擇你要的交付方式" description="你可以只取得設計檔，也可以交給我們製作。價格會隨材料、數量與客製內容即時估算。" />
                   {enclosureType === "sealed" && <div className="constraint-banner"><b>密封型製作限制</b><span>密封型目前僅提供 6 系列鋁合金 CNC，已為你自動選擇。</span></div>}
                   {hasThermal && enclosureType !== "sealed" && <div className="constraint-banner"><b>散熱表面積需求</b><span>你的設計包含「增加外殼散熱表面積」，因此製作方式已切換為鋁合金 CNC。</span></div>}
                   <div className="form-section">
@@ -337,15 +379,15 @@ export default function Home() {
               </section>
             )}
 
-            {step === 6 && (
+            {step === 7 && (
               <section className="review-page">
                 <div className="review-main">
-                  <StepHeader number={6} kicker="最後確認" title="這就是你的外殼方案" description="請快速確認以下內容。送出後，我們會依照這份需求進行下一步。" />
+                  <StepHeader number={7} kicker="確認送出" title="這就是你的外殼方案" description="請快速確認以下內容。送出後，我們會依照這份需求進行下一步。" />
                   <div className="review-grid">
-                    <SummaryBlock title="外殼" onEdit={() => goTo(1)}><strong>{enclosureType === "standard" ? "一般型" : "密封型"}</strong><span>{enclosure.width} × {enclosure.depth} × {enclosure.height} mm</span></SummaryBlock>
+                    <SummaryBlock title="外殼" onEdit={() => goTo(4)}><strong>{enclosureType === "standard" ? "一般型" : "密封型"}</strong><span>{enclosure.width} × {enclosure.depth} × {enclosure.height} mm</span></SummaryBlock>
                     <SummaryBlock title="PCB" onEdit={() => goTo(3)}><strong>{pcb.width} × {pcb.depth} × {pcb.thickness} mm</strong><span>{holes.length} 個固定孔 · 最高元件 {pcb.componentHeight} mm</span></SummaryBlock>
-                    <SummaryBlock title="六面客製" onEdit={() => goTo(4)}><strong>{featureCount ? `${featureCount} 項客製` : "未加入客製"}</strong><span>{(Object.keys(faceLabels) as Face[]).filter((face) => faces[face].length).map((face) => `${faceLabels[face]} ${faces[face].length}`).join(" · ") || "標準外殼表面"}</span></SummaryBlock>
-                    <SummaryBlock title="製作與交付" onEdit={() => goTo(5)}><strong>{methodLabels[method]} · {finish}</strong><span>{physical ? `實體製作 ${quantity} 件` : "僅設計檔"} · {Object.entries(files).filter(([,value]) => value).map(([key]) => key.toUpperCase()).join(" / ") || "未選檔案"}</span></SummaryBlock>
+                    <SummaryBlock title="六面客製" onEdit={() => goTo(5)}><strong>{featureCount ? `${featureCount} 項客製` : "未加入客製"}</strong><span>{(Object.keys(faceLabels) as Face[]).filter((face) => faces[face].length).map((face) => `${faceLabels[face]} ${faces[face].length}`).join(" · ") || "標準外殼表面"}</span></SummaryBlock>
+                    <SummaryBlock title="製作與交付" onEdit={() => goTo(6)}><strong>{methodLabels[method]} · {finish}</strong><span>{physical ? `實體製作 ${quantity} 件` : "僅設計檔"} · {Object.entries(files).filter(([,value]) => value).map(([key]) => key.toUpperCase()).join(" / ") || "未選檔案"}</span></SummaryBlock>
                   </div>
                   <aside className="green-guide"><b>工程確認仍是必要步驟</b><span>此 MVP 的尺寸、3D 預覽與價格皆為流程模擬。正式製作前，工程人員會再次檢查裝配與加工可行性。</span></aside>
                 </div>
@@ -359,13 +401,13 @@ export default function Home() {
       {!payment && (
         <footer className="bottom-bar">
           <button className="back-button" type="button" onClick={back} disabled={step === 1}>← 上一步</button>
-          <p><span>{step === 6 ? "準備完成" : "接下來"}</span>{step === 1 ? "上傳 PCB 照片，或直接輸入尺寸" : step === 2 ? "確認系統取得的 PCB 資料" : step === 3 ? "選擇外殼六個面的客製內容" : step === 4 ? "選擇製作方式與檔案" : step === 5 ? "確認全部設定與估價" : isCnc ? "送出需求並等待正式報價" : "進入模擬付款"}</p>
-          {step < 6 ? <button className="primary-button" type="button" onClick={next} disabled={step === 2 && !inputMode}>繼續：{steps[step]} <span>→</span></button> : <button className="primary-button" type="button" onClick={() => isCnc ? setSuccess(true) : setPayment(true)}>{isCnc ? "送出需求，等待正式報價" : "確認並前往付款"} <span>→</span></button>}
+          <p><span>{step === 7 ? "準備完成" : "接下來"}</span>{step === 1 ? "上傳 PCB 照片，或直接輸入尺寸" : step === 2 ? "確認 AI 辨識或手動輸入的 PCB 尺寸" : step === 3 ? "設定外殼尺寸與固定孔位置" : step === 4 ? "選擇外殼六個面的客製內容" : step === 5 ? "選擇製作方式與檔案" : step === 6 ? "確認全部設定與估價" : isCnc ? "送出需求並等待正式報價" : "進入模擬付款"}</p>
+          {step < 7 ? <button className="primary-button" type="button" onClick={next} disabled={step === 2 && !inputMode}>繼續：{steps[step]} <span>→</span></button> : <button className="primary-button" type="button" onClick={() => isCnc ? setSuccess(true) : setPayment(true)}>{isCnc ? "送出需求，等待正式報價" : "確認並前往付款"} <span>→</span></button>}
         </footer>
       )}
 
       {notice && <button className="toast" onClick={() => setNotice("")}>{notice}<span>×</span></button>}
-      {helpOpen && <div className="modal-backdrop" onClick={() => setHelpOpen(false)}><div className="help-modal" onClick={(e) => e.stopPropagation()}><button className="modal-close" onClick={() => setHelpOpen(false)}>×</button><div className="eyebrow"><span>?</span> 使用協助</div><h2>不知道怎麼填，也沒關係</h2><p>這是使用流程原型。你可以直接採用預設資料一路操作，所有報價、付款與訂單狀態都只是模擬，不會真的送出。</p><ul><li>照片可以任意選擇 1–3 張圖片測試。</li><li>尺寸與固定孔可直接修改。</li><li>密封型只會顯示鋁合金 CNC。</li></ul><button className="primary-button" onClick={() => setHelpOpen(false)}>了解，繼續操作</button></div></div>}
+      {helpOpen && <div className="modal-backdrop" onClick={() => setHelpOpen(false)}><div className="help-modal" onClick={(e) => e.stopPropagation()}><button className="modal-close" onClick={() => setHelpOpen(false)}>×</button><div className="eyebrow"><span>?</span> 使用協助</div><h2>不知道怎麼填，也沒關係</h2><p>這是使用流程原型。你可以直接採用預設資料一路操作，所有報價、付款與訂單狀態都只是模擬，不會真的送出。</p><ul><li>建議準備最大長、最大寬與小特徵共 3 張量測照片。</li><li>PCB、外殼尺寸與固定孔可分步修改。</li><li>密封型只會顯示鋁合金 CNC。</li></ul><button className="primary-button" onClick={() => setHelpOpen(false)}>了解，繼續操作</button></div></div>}
     </main>
   );
 }
