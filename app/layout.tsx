@@ -4,6 +4,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "CASEFORM｜PCB 外殼快速訂製",
   description: "上傳 PCB，快速完成外殼配置、預覽與報價。",
+  icons: { icon: "/favicon.svg" },
   openGraph: {
     title: "CASEFORM｜上傳 PCB，就幫你做好外殼",
     description: "快速配置、即時預覽、透明報價的 PCB 外殼訂製體驗。",

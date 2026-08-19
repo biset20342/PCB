@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Enclosure3DPreview } from "./components/Enclosure3DPreview";
 
 type EnclosureType = "standard" | "sealed";
 type Method = "pla" | "asa" | "cnc";
 type Face = "top" | "bottom" | "front" | "back" | "left" | "right";
 type Feature = { id: number; kind: "opening" | "connector" | "thermal"; label: string };
-type Hole = { x: number; y: number; diameter: number };
+type Hole = { x: number; y: number };
+type PcbPlacement = { x: number; y: number; rotation: number };
 
 const steps = ["外殼類型", "PCB 資料", "確認 PCB 尺寸", "確認外殼尺寸", "六面客製", "製作與報價", "確認送出"];
 const faceLabels: Record<Face, string> = { top: "上面", bottom: "下面", front: "前面", back: "後面", left: "左面", right: "右面" };
@@ -28,7 +30,7 @@ function PreviewModel({ sealed = false, compact = false, features = 0 }: { seale
   );
 }
 
-function PcbPlanPreview({ width, depth, holeDiameter, holes }: { width: number; depth: number; holeDiameter: number; holes: Hole[] }) {
+function PcbPlanPreview({ width, depth, componentHeight, holeDiameter, holes }: { width: number; depth: number; componentHeight: number; holeDiameter: number; holes: Hole[] }) {
   const safeWidth = Math.max(width, 1);
   const safeDepth = Math.max(depth, 1);
   return (
@@ -38,19 +40,75 @@ function PcbPlanPreview({ width, depth, holeDiameter, holes }: { width: number; 
         <div className="pcb-plan-board" style={{ aspectRatio: `${safeWidth} / ${safeDepth}` }}>
           <span className="pcb-chip main-chip" /><span className="pcb-chip port-chip" /><span className="pcb-chip small-chip" />
           <span className="pcb-trace trace-one" /><span className="pcb-trace trace-two" /><b>PCB</b>
-          {holes.map((hole, index) => (
-            <i
-              className="pcb-plan-hole"
+          {holes.map((hole, index) => {
+            return (
+            <span
+              className={`pcb-plan-hole ${hole.x / safeWidth > 0.65 ? "label-left" : ""} ${hole.x < 0 || hole.x > width || hole.y < 0 || hole.y > depth ? "invalid" : ""}`}
               key={`${index}-${hole.x}-${hole.y}`}
               style={{ left: `${Math.min(97, Math.max(3, (hole.x / safeWidth) * 100))}%`, bottom: `${Math.min(97, Math.max(3, (hole.y / safeDepth) * 100))}%` }}
-              title={`H${index + 1} Ø${hole.diameter || holeDiameter} mm`}
-            />
-          ))}
+              title={`H${index + 1} X ${hole.x} / Y ${hole.y} / Ø ${holeDiameter} mm`}
+            ><i /><b>H{index + 1} · Ø{holeDiameter}</b></span>
+          );})}
           <span className="dimension-line width-line"><em>{width} mm</em></span>
           <span className="dimension-line depth-line"><em>{depth} mm</em></span>
+          <span className="pcb-origin-marker"><i className="origin-x" /><i className="origin-y" /><b>X0 / Y0</b></span>
         </div>
       </div>
-      <div className="pcb-plan-legend"><span><i /> PCB 外框</span><span><i /> 孔徑 Ø {holeDiameter} mm</span></div>
+      <div className="pcb-plan-legend"><span><i /> PCB 外框</span><span><i /> {holes.length} 個孔位</span></div>
+      <div className="pcb-front-view">
+        <div className="pcb-front-title"><b>正視圖</b><span>最高元件尺寸</span></div>
+        <div className="pcb-front-stage">
+          <span className="pcb-front-board" />
+          <span className="pcb-front-component component-low" />
+          <span className="pcb-front-component component-mid" />
+          <span className="pcb-front-component component-high" />
+          <span className="component-height-line"><em>{componentHeight} mm</em></span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EnclosurePlanPreview({ enclosureWidth, enclosureHeight, caseDepth, lidHeight, pcbWidth, pcbDepth, holeDiameter, holes, placement, showPcb, onTogglePcb }: { enclosureWidth: number; enclosureHeight: number; caseDepth: number; lidHeight: number; pcbWidth: number; pcbDepth: number; holeDiameter: number; holes: Hole[]; placement: PcbPlacement; showPcb: boolean; onTogglePcb: () => void }) {
+  const safeEnclosureWidth = Math.max(enclosureWidth, 1);
+  const safeEnclosureHeight = Math.max(enclosureHeight, 1);
+  const safePcbWidth = Math.max(pcbWidth, 1);
+  const safePcbDepth = Math.max(pcbDepth, 1);
+  const lidShare = Math.min(42, Math.max(22, (lidHeight / Math.max(caseDepth + lidHeight, 1)) * 100));
+  return (
+    <div className="enclosure-plan-wrap">
+      <div className="preview-toolbar">
+        <div className="preview-badge"><i /> 平面即時預覽</div>
+        <button type="button" className={showPcb ? "active" : ""} aria-pressed={showPcb} onClick={onTogglePcb}><i /> {showPcb ? "隱藏 PCB" : "顯示 PCB"}</button>
+      </div>
+      <div className="enclosure-plan-stage">
+        <div className="enclosure-plan-shell" style={{ aspectRatio: `${safeEnclosureWidth} / ${safeEnclosureHeight}` }}>
+          <span className="enclosure-inner-line" />
+          {showPcb && (
+            <div className="placed-pcb" style={{ width: `${(safePcbWidth / safeEnclosureWidth) * 100}%`, height: `${(safePcbDepth / safeEnclosureHeight) * 100}%`, left: `${(placement.x / safeEnclosureWidth) * 100}%`, bottom: `${(placement.y / safeEnclosureHeight) * 100}%`, transform: `rotate(${placement.rotation}deg)` }}>
+              <b>PCB</b>
+              {holes.map((hole, index) => <i key={`${index}-${hole.x}-${hole.y}`} style={{ left: `${(hole.x / safePcbWidth) * 100}%`, bottom: `${(hole.y / safePcbDepth) * 100}%`, width: `${Math.max(1.8, (holeDiameter / safePcbWidth) * 100)}%`, height: "auto", aspectRatio: "1" }} title={`H${index + 1} · Ø${holeDiameter} mm`} />)}
+              <span className="placed-pcb-origin"><i className="origin-x" /><i className="origin-y" /><em>X0 / Y0</em></span>
+            </div>
+          )}
+          <span className="dimension-line enclosure-width-line"><em>W {enclosureWidth} mm</em></span>
+          <span className="dimension-line enclosure-height-line"><em>H {enclosureHeight} mm</em></span>
+        </div>
+      </div>
+      <div className="enclosure-plan-legend"><span><i /> 外殼內部</span>{showPcb && <span><i /> PCB：X {placement.x} / Y {placement.y} / {placement.rotation}° · {holes.length} 孔 · Ø {holeDiameter} mm</span>}</div>
+      <div className="enclosure-front-view">
+        <div className="enclosure-front-title"><b>外殼側視圖</b><span>確認上蓋、本體與 PCB 的高度關係</span></div>
+        <div className="enclosure-front-stage">
+          <div className="enclosure-front-shape">
+            <span className="enclosure-front-lid" style={{ height: `${lidShare}%` }}><b>上蓋</b></span>
+            <span className="enclosure-front-body" style={{ top: `${lidShare}%` }}><b>本體</b></span>
+            {showPcb && <span className="enclosure-side-pcb">PCB</span>}
+          </div>
+          <span className="front-lid-dimension" style={{ height: `${lidShare}%` }}><em>上蓋 {lidHeight} mm</em></span>
+          <span className="front-case-dimension" style={{ top: `${lidShare}%` }}><em>本體 {caseDepth} mm</em></span>
+        </div>
+        <div className="enclosure-front-legend"><span><i className="lid" />上蓋</span><span><i className="body" />本體</span>{showPcb && <span><i className="pcb" />PCB 安裝面</span>}</div>
+      </div>
     </div>
   );
 }
@@ -73,12 +131,14 @@ export default function Home() {
   const [fileNames, setFileNames] = useState<string[]>([]);
   const [imagePreviews, setImagePreviews] = useState<string[]>([]);
   const [analyzing, setAnalyzing] = useState(false);
-  const [pcb, setPcb] = useState({ width: 68.6, depth: 53.3, thickness: 1.6, componentHeight: 14, holeDiameter: 3.2 });
+  const [pcb, setPcb] = useState({ width: 68.6, depth: 53.3, componentHeight: 14, holeDiameter: 3.2 });
   const [holes, setHoles] = useState<Hole[]>([
-    { x: 14, y: 2.5, diameter: 3.2 }, { x: 66, y: 7.6, diameter: 3.2 },
-    { x: 66, y: 35.6, diameter: 3.2 }, { x: 15.2, y: 50.8, diameter: 3.2 },
+    { x: 14, y: 2.5 }, { x: 66, y: 7.6 },
+    { x: 66, y: 35.6 }, { x: 15.2, y: 50.8 },
   ]);
-  const [enclosure, setEnclosure] = useState({ width: 78.6, depth: 63.3, height: 24 });
+  const [enclosure, setEnclosure] = useState({ width: 88.6, depth: 19, height: 73.3, lidHeight: 8 });
+  const [pcbPlacement, setPcbPlacement] = useState<PcbPlacement>({ x: 10, y: 10, rotation: 0 });
+  const [showPcbInEnclosure, setShowPcbInEnclosure] = useState(true);
   const [selectedFace, setSelectedFace] = useState<Face>("front");
   const [faces, setFaces] = useState<Record<Face, Feature[]>>(emptyFaces);
   const [openingShape, setOpeningShape] = useState("矩形");
@@ -95,8 +155,30 @@ export default function Home() {
   const uploadRef = useRef<HTMLInputElement>(null);
 
   const featureCount = Object.values(faces).flat().length;
+  const faceFeatureCounts = useMemo(() => ({
+    top: faces.top.length,
+    bottom: faces.bottom.length,
+    front: faces.front.length,
+    back: faces.back.length,
+    left: faces.left.length,
+    right: faces.right.length,
+  }), [faces]);
   const hasThermal = Object.values(faces).flat().some((item) => item.kind === "thermal");
   const isCnc = method === "cnc" || enclosureType === "sealed";
+  const hasSelectedFile = files.stl || files.step || files.drawing;
+  const requiresDesignFile = !physical && !hasSelectedFile;
+  const invalidHoleIndexes = holes.reduce<number[]>((indexes, hole, index) => {
+    if (hole.x < 0 || hole.x > pcb.width || hole.y < 0 || hole.y > pcb.depth) indexes.push(index);
+    return indexes;
+  }, []);
+  const hasInvalidHoles = invalidHoleIndexes.length > 0;
+  const enclosureRangeErrors = [
+    enclosure.width < 50 || enclosure.width > 150 ? "外殼長度必須介於 50～150 mm" : "",
+    enclosure.height < 50 || enclosure.height > 150 ? "外殼寬度必須介於 50～150 mm" : "",
+    enclosure.depth < 15 || enclosure.depth > 100 ? "本體高度必須介於 15～100 mm" : "",
+    enclosure.lidHeight < 8 || enclosure.lidHeight > 50 ? "上蓋高度必須介於 8～50 mm" : "",
+  ].filter(Boolean);
+  const hasInvalidEnclosure = enclosureRangeErrors.length > 0;
 
   useEffect(() => {
     if (enclosureType === "sealed" || hasThermal) {
@@ -106,9 +188,9 @@ export default function Home() {
   }, [enclosureType, hasThermal]);
 
   useEffect(() => {
-    const snapshot = { step, enclosureType, pcb, holes, enclosure, faces, method, finish, physical, quantity, files };
+    const snapshot = { step, enclosureType, pcb, holes, enclosure, pcbPlacement, showPcbInEnclosure, faces, method, finish, physical, quantity, files };
     localStorage.setItem("caseform-draft", JSON.stringify(snapshot));
-  }, [step, enclosureType, pcb, holes, enclosure, faces, method, finish, physical, quantity, files]);
+  }, [step, enclosureType, pcb, holes, enclosure, pcbPlacement, showPcbInEnclosure, faces, method, finish, physical, quantity, files]);
 
   const estimate = useMemo(() => {
     const base = method === "pla" ? 1680 : method === "asa" ? 2380 : 4800;
@@ -119,6 +201,18 @@ export default function Home() {
   }, [method, featureCount, hasThermal, files, physical, quantity]);
 
   const goTo = (target: number) => {
+    if (step === 3 && target > 3 && hasInvalidHoles) {
+      setNotice("請先修正超出 PCB 最大尺寸的孔位");
+      return;
+    }
+    if (step === 4 && target > 4 && hasInvalidEnclosure) {
+      setNotice("請先將外殼參數調整到允許範圍內");
+      return;
+    }
+    if (step === 6 && target > 6 && requiresDesignFile) {
+      setNotice("只要設計檔時，請至少選擇一種檔案格式");
+      return;
+    }
     setPayment(false);
     setStep(target);
     setMaxStep((current) => Math.max(current, target));
@@ -140,8 +234,9 @@ export default function Home() {
   const analyze = () => {
     setAnalyzing(true);
     setTimeout(() => {
-      setPcb({ width: 68.6, depth: 53.3, thickness: 1.6, componentHeight: 14, holeDiameter: 3.2 });
-      setEnclosure({ width: 78.6, depth: 63.3, height: 24 });
+      setPcb({ width: 68.6, depth: 53.3, componentHeight: 14, holeDiameter: 3.2 });
+      setEnclosure({ width: 88.6, depth: 19, height: 73.3, lidHeight: 8 });
+      setPcbPlacement({ x: 10, y: 10, rotation: 0 });
       setAnalyzing(false);
       goTo(3);
     }, 1400);
@@ -149,16 +244,18 @@ export default function Home() {
 
   const startCustom = () => {
     setInputMode("custom");
-    setPcb({ width: 100, depth: 70, thickness: 1.6, componentHeight: 15, holeDiameter: 3.2 });
-    setEnclosure({ width: 110, depth: 80, height: 26 });
+    setPcb({ width: 100, depth: 70, componentHeight: 15, holeDiameter: 3.2 });
+    setEnclosure({ width: 120, depth: 20, height: 90, lidHeight: 8 });
+    setPcbPlacement({ x: 10, y: 10, rotation: 0 });
     setHoles([]);
     goTo(3);
   };
 
   const updatePcb = (key: keyof typeof pcb, value: number) => {
     setPcb((old) => ({ ...old, [key]: value }));
-    if (key === "width") setEnclosure((old) => ({ ...old, width: value + 10 }));
-    if (key === "depth") setEnclosure((old) => ({ ...old, depth: value + 10 }));
+    if (key === "width") setEnclosure((old) => ({ ...old, width: value + 20 }));
+    if (key === "depth") setEnclosure((old) => ({ ...old, height: value + 20 }));
+    if (key === "componentHeight") setEnclosure((old) => ({ ...old, depth: value + 5 }));
   };
 
   const updateHole = (index: number, key: keyof Hole, value: number) => {
@@ -289,35 +386,54 @@ export default function Home() {
                   <StepHeader number={3} kicker="確認 PCB 尺寸" title="確認最終尺寸結果" description="確認 PCB 的尺寸後，下一步會開始進行外殼尺寸設定。" />
                   <div className="form-section">
                     <div className="section-title"><b>PCB 基本尺寸</b><span>單位：mm</span></div>
-                    <div className="field-grid five">
-                      {([['width','最大長度'],['depth','最大寬度'],['thickness','厚度'],['componentHeight','最高元件'],['holeDiameter','PCB 孔徑 Ø']] as const).map(([key,label]) => <label key={key}><span>{label}</span><div><input type="number" step="0.1" value={pcb[key]} onChange={(e) => updatePcb(key, Number(e.target.value))} /><i>mm</i></div></label>)}
+                    <div className="field-grid four">
+                      {([['width','最大長度'],['depth','最大寬度'],['componentHeight','最高元件'],['holeDiameter','PCB 孔徑 Ø']] as const).map(([key,label]) => <label key={key}><span>{label}</span><div><input type="number" step="0.1" value={pcb[key]} onChange={(e) => updatePcb(key, Number(e.target.value))} /><i>mm</i></div></label>)}
                     </div>
+                  </div>
+                  <div className="form-section holes-section pcb-holes-section">
+                    <div className="section-title"><b>PCB 孔位內容</b><span>統一孔徑 Ø {pcb.holeDiameter} mm</span><button onClick={() => setHoles((old) => [...old, { x: 10, y: 10 }])}>＋ 新增孔位</button></div>
+                    <div className="hole-head"><span>孔位</span><span>X</span><span>Y</span><span /></div>
+                    {holes.map((hole, index) => <div className={`hole-row ${invalidHoleIndexes.includes(index) ? "invalid" : ""}`} key={index}><b>H{index + 1}</b>{(['x','y'] as const).map((key) => <input aria-label={`H${index + 1} ${key}`} aria-invalid={invalidHoleIndexes.includes(index)} key={key} type="number" step="0.1" value={hole[key]} onChange={(e) => updateHole(index, key, Number(e.target.value))} />)}<button aria-label={`刪除孔位 H${index + 1}`} onClick={() => setHoles((old) => old.filter((_, i) => i !== index))}>×</button></div>)}
+                    {holes.length === 0 && <p className="empty-row">目前沒有孔位；可新增孔位並輸入中心座標，所有孔位共用上方設定的 PCB 孔徑。</p>}
+                    {hasInvalidHoles && <p className="hole-validation-error" role="alert">孔位超出 PCB 最大尺寸。X 必須介於 0–{pcb.width} mm，Y 必須介於 0–{pcb.depth} mm；請修正紅色孔位後再繼續。</p>}
                   </div>
                   <aside className="green-guide"><b>請特別確認</b><span>AI 辨識尺寸可能產生誤差，為了達到最好的設計結果，請依據實務尺寸確認。</span></aside>
                 </div>
-                <div className="sticky-preview pcb-preview-panel"><PcbPlanPreview width={pcb.width} depth={pcb.depth} holeDiameter={pcb.holeDiameter} holes={holes} /><div className="dimension-readout"><span>PCB 最大尺寸</span><strong>{pcb.width} × {pcb.depth} mm</strong></div></div>
+                <div className="sticky-preview pcb-preview-panel"><PcbPlanPreview width={pcb.width} depth={pcb.depth} componentHeight={pcb.componentHeight} holeDiameter={pcb.holeDiameter} holes={holes} /><div className="dimension-readout"><span>PCB 最大尺寸</span><strong>{pcb.width} × {pcb.depth} mm</strong><small>最高元件 {pcb.componentHeight} mm · {holes.length} 個孔位</small></div></div>
               </section>
             )}
 
             {step === 4 && (
               <section className="content-page editor-page enclosure-editor-page">
                 <div className="page-copy wide-copy">
-                  <StepHeader number={4} kicker="確認外殼尺寸" title="設定外殼與固定孔" description="系統已依 PCB 最大尺寸預留基本間隙，你可以在這裡確認外殼大小與固定孔位置。" />
+                  <StepHeader number={4} kicker="確認外殼尺寸" title="設定外殼尺寸" description="外殼長度 / 寬度建議至少大於 PCB 總長 / 總寬 20mm" />
                   <div className="form-section">
                     <div className="section-title"><b>外殼建議尺寸</b><span className="auto-tag">自動預留間隙</span></div>
-                    <div className="field-grid three">
-                      {([['width','外寬 W'],['depth','外深 D'],['height','外高 H']] as const).map(([key,label]) => <label key={key}><span>{label}</span><div><input type="number" step="0.1" value={enclosure[key]} onChange={(e) => setEnclosure((old) => ({ ...old, [key]: Number(e.target.value) }))} /><i>mm</i></div></label>)}
+                    <div className="field-grid four parameter-field-grid">
+                      {([['width','外殼長度','CASE_L',50,150],['height','外殼寬度','CASE_W',50,150],['depth','本體高度','CASE_H',15,100],['lidHeight','上蓋高度','LID_H',8,50]] as const).map(([key,label,code,min,max]) => {
+                        const invalid = enclosure[key] < min || enclosure[key] > max;
+                        return <label className={invalid ? "parameter-invalid" : ""} key={key}><span>{label}<small>可設定範圍 {min}～{max} mm</small></span><div><input data-engineering-key={code} aria-label={`${label} ${min}～${max} mm`} aria-invalid={invalid} type="number" min={min} max={max} step="0.1" value={enclosure[key]} onChange={(e) => setEnclosure((old) => ({ ...old, [key]: Number(e.target.value) }))} /><i>mm</i></div></label>;
+                      })}
                     </div>
+                    <div className="fixed-parameter-specs"><label data-engineering-key="WALL_T"><span>固定壁厚</span><select aria-label="固定壁厚" value="2.4 mm" onChange={() => {}}><option>2.4 mm</option></select></label><label data-engineering-key="CASE_R"><span>固定圓角</span><select aria-label="固定圓角" value="R4.5" onChange={() => {}}><option>R4.5</option></select></label><label data-engineering-key="LID_TYPE"><span>上蓋方式</span><select aria-label="上蓋方式" value="螺絲固定" onChange={() => {}}><option>螺絲固定</option></select></label></div>
+                    {hasInvalidEnclosure && <p className="parameter-validation-error" role="alert">{enclosureRangeErrors.join("；")}。請修正後再繼續。</p>}
                   </div>
-                  <div className="form-section holes-section">
-                    <div className="section-title"><b>固定孔位置</b><button onClick={() => setHoles((old) => [...old, { x: 10, y: 10, diameter: pcb.holeDiameter }])}>＋ 新增固定孔</button></div>
-                    <div className="hole-head"><span>孔位</span><span>X</span><span>Y</span><span>孔徑 Ø</span><span /></div>
-                    {holes.map((hole, index) => <div className="hole-row" key={index}><b>H{index + 1}</b>{(['x','y','diameter'] as const).map((key) => <input key={key} type="number" step="0.1" value={hole[key]} onChange={(e) => updateHole(index, key, Number(e.target.value))} />)}<button aria-label={`刪除固定孔 H${index + 1}`} onClick={() => setHoles((old) => old.filter((_, i) => i !== index))}>×</button></div>)}
-                    {holes.length === 0 && <p className="empty-row">目前沒有固定孔；你可以新增孔位，或直接進入下一步。</p>}
+                  <div className="form-section pcb-placement-section">
+                    <div className="section-title"><b>PCB 孔位配置</b><span>{holes.length} 個孔位同步移動</span></div>
+                    <div className="field-grid three">
+                      <label><span>X 平移</span><div><input type="number" step="0.1" value={pcbPlacement.x} onChange={(e) => setPcbPlacement((old) => ({ ...old, x: Number(e.target.value) }))} /><i>mm</i></div></label>
+                      <label><span>Y 平移</span><div><input type="number" step="0.1" value={pcbPlacement.y} onChange={(e) => setPcbPlacement((old) => ({ ...old, y: Number(e.target.value) }))} /><i>mm</i></div></label>
+                      <label><span>旋轉角度</span><div><input type="number" step="1" value={pcbPlacement.rotation} onChange={(e) => setPcbPlacement((old) => ({ ...old, rotation: Number(e.target.value) }))} /><i>°</i></div></label>
+                    </div>
+                    <div className="placement-actions">
+                      <button type="button" onClick={() => setPcbPlacement({ x: Math.max(0, (enclosure.width - pcb.width) / 2), y: Math.max(0, (enclosure.height - pcb.depth) / 2), rotation: 0 })}>置中並歸零</button>
+                      <button type="button" onClick={() => setPcbPlacement((old) => ({ ...old, rotation: ((old.rotation - 90) % 360 + 360) % 360 }))}>向左旋轉 90°</button>
+                      <button type="button" onClick={() => setPcbPlacement((old) => ({ ...old, rotation: (old.rotation + 90) % 360 }))}>向右旋轉 90°</button>
+                    </div>
                   </div>
                   <aside className="green-guide"><b>外殼尺寸說明</b><span>建議尺寸包含基本裝配間隙；正式製作前仍會依材料與加工方式進行工程確認。</span></aside>
                 </div>
-                <div className="sticky-preview"><PreviewModel sealed={enclosureType === "sealed"} compact /><div className="dimension-readout"><span>外殼尺寸</span><strong>{enclosure.width} × {enclosure.depth} × {enclosure.height} mm</strong><small>PCB {pcb.width} × {pcb.depth} mm · {holes.length} 個固定孔</small></div></div>
+                <div className="sticky-preview enclosure-plan-panel"><EnclosurePlanPreview enclosureWidth={enclosure.width} enclosureHeight={enclosure.height} caseDepth={enclosure.depth} lidHeight={enclosure.lidHeight} pcbWidth={pcb.width} pcbDepth={pcb.depth} holeDiameter={pcb.holeDiameter} holes={holes} placement={pcbPlacement} showPcb={showPcbInEnclosure} onTogglePcb={() => setShowPcbInEnclosure((value) => !value)} /><div className="dimension-readout"><span>外殼最大尺寸</span><strong>長 {enclosure.width} × 寬 {enclosure.height} mm</strong><small>本體高度 {enclosure.depth} mm · 上蓋高度 {enclosure.lidHeight} mm</small></div></div>
               </section>
             )}
 
@@ -329,7 +445,7 @@ export default function Home() {
                   <aside className="green-guide"><b>目前編輯：{faceLabels[selectedFace]}</b><span>位置與尺寸在本 MVP 中以示意資料呈現，正式製作前仍會由工程人員確認。</span></aside>
                 </div>
                 <div className="custom-main">
-                  <div className="case-canvas"><PreviewModel sealed={enclosureType === "sealed"} compact features={featureCount} /><div className="face-name">{faceLabels[selectedFace]} / {faces[selectedFace].length} 項客製</div></div>
+                  <div className="case-canvas three-case-canvas"><Enclosure3DPreview family={enclosureType} length={enclosure.width} width={enclosure.height} height={enclosure.depth} lidHeight={enclosure.lidHeight} selectedFace={selectedFace} featureCounts={faceFeatureCounts} /><div className="face-name">目前查看：{faceLabels[selectedFace]} · {faces[selectedFace].length} 項客製</div></div>
                   <div className="feature-panel">
                     <div className="section-title"><b>在{faceLabels[selectedFace]}新增</b><span>{featureCount} 項總客製</span></div>
                     <div className="feature-actions">
@@ -338,7 +454,7 @@ export default function Home() {
                       <div className="feature-action thermal-action"><span className="feature-icon">≋</span><div><b>增加外殼散熱表面積</b><small>僅適用 6 系列鋁合金 CNC</small></div><button onClick={() => addFeature("thermal")}>＋</button></div>
                     </div>
                     <div className="feature-list">
-                      {faces[selectedFace].map((item) => <div key={item.id}><span><i>{item.kind === "opening" ? "開" : item.kind === "connector" ? "接" : "散"}</i>{item.label}</span><button onClick={() => removeFeature(selectedFace, item.id)}>移除</button></div>)}
+                      {faces[selectedFace].map((item) => <div key={item.id}><span><i>{item.kind === "opening" ? "開" : item.kind === "connector" ? "接" : "散"}</i><em className="feature-face-badge">{faceLabels[selectedFace]}</em>{item.label}</span><button onClick={() => removeFeature(selectedFace, item.id)}>移除</button></div>)}
                       {faces[selectedFace].length === 0 && <p>這一面尚未加入客製項目。</p>}
                     </div>
                   </div>
@@ -371,11 +487,12 @@ export default function Home() {
                   </div>
                   {physical && <div className="form-section quantity-row"><div className="section-title"><b>製作數量</b></div><button onClick={() => setQuantity(Math.max(1, quantity - 1))}>−</button><strong>{quantity}</strong><button onClick={() => setQuantity(Math.min(20, quantity + 1))}>＋</button><span>件</span></div>}
                   <div className="form-section">
-                    <div className="section-title"><b>需要哪些設計檔？</b><span>可複選</span></div>
-                    <div className="file-options">{([['stl','STL','可直接 3D 列印'],['step','STEP','3D 工程模型'],['drawing','CAD 工程圖','加工尺寸與標註']] as const).map(([key,title,note]) => <button key={key} className={files[key] ? "selected" : ""} onClick={() => setFiles((old) => ({ ...old, [key]: !old[key] }))}><span>{files[key] ? "✓" : ""}</span><b>{title}</b><small>{note}</small></button>)}</div>
+                    <div className="section-title"><b>需要哪些設計檔？</b><span>{physical ? "可複選" : "至少選擇一項"}</span></div>
+                    <div className={`file-options ${requiresDesignFile ? "invalid" : ""}`} aria-invalid={requiresDesignFile}>{([['stl','STL','可直接 3D 列印'],['step','STEP','3D 工程模型'],['drawing','CAD 工程圖','加工尺寸與標註']] as const).map(([key,title,note]) => <button key={key} className={files[key] ? "selected" : ""} aria-pressed={files[key]} onClick={() => setFiles((old) => ({ ...old, [key]: !old[key] }))}><span>{files[key] ? "✓" : ""}</span><b>{title}</b><small>{note}</small></button>)}</div>
+                    {requiresDesignFile && <p className="file-validation-error" role="alert">只要設計檔時，請至少勾選一種檔案格式。</p>}
                   </div>
                 </div>
-                <QuoteCard estimate={estimate} isCnc={isCnc} method={method} quantity={quantity} featureCount={featureCount} />
+                <div className="quote-side"><Enclosure3DPreview compact family={enclosureType} length={enclosure.width} width={enclosure.height} height={enclosure.depth} lidHeight={enclosure.lidHeight} featureCounts={faceFeatureCounts} /><QuoteCard estimate={estimate} isCnc={isCnc} method={method} quantity={quantity} featureCount={featureCount} /></div>
               </section>
             )}
 
@@ -384,14 +501,14 @@ export default function Home() {
                 <div className="review-main">
                   <StepHeader number={7} kicker="確認送出" title="這就是你的外殼方案" description="請快速確認以下內容。送出後，我們會依照這份需求進行下一步。" />
                   <div className="review-grid">
-                    <SummaryBlock title="外殼" onEdit={() => goTo(4)}><strong>{enclosureType === "standard" ? "一般型" : "密封型"}</strong><span>{enclosure.width} × {enclosure.depth} × {enclosure.height} mm</span></SummaryBlock>
-                    <SummaryBlock title="PCB" onEdit={() => goTo(3)}><strong>{pcb.width} × {pcb.depth} × {pcb.thickness} mm</strong><span>{holes.length} 個固定孔 · 最高元件 {pcb.componentHeight} mm</span></SummaryBlock>
+                    <SummaryBlock title="外殼" onEdit={() => goTo(4)}><strong>{enclosureType === "standard" ? "一般型" : "密封型"}</strong><span>長 {enclosure.width} × 寬 {enclosure.height} mm · 本體高 {enclosure.depth} mm · 上蓋高 {enclosure.lidHeight} mm</span></SummaryBlock>
+                    <SummaryBlock title="PCB" onEdit={() => goTo(3)}><strong>{pcb.width} × {pcb.depth} mm</strong><span>{holes.length} 個孔位 · 最高元件 {pcb.componentHeight} mm</span></SummaryBlock>
                     <SummaryBlock title="六面客製" onEdit={() => goTo(5)}><strong>{featureCount ? `${featureCount} 項客製` : "未加入客製"}</strong><span>{(Object.keys(faceLabels) as Face[]).filter((face) => faces[face].length).map((face) => `${faceLabels[face]} ${faces[face].length}`).join(" · ") || "標準外殼表面"}</span></SummaryBlock>
                     <SummaryBlock title="製作與交付" onEdit={() => goTo(6)}><strong>{methodLabels[method]} · {finish}</strong><span>{physical ? `實體製作 ${quantity} 件` : "僅設計檔"} · {Object.entries(files).filter(([,value]) => value).map(([key]) => key.toUpperCase()).join(" / ") || "未選檔案"}</span></SummaryBlock>
                   </div>
                   <aside className="green-guide"><b>工程確認仍是必要步驟</b><span>此 MVP 的尺寸、3D 預覽與價格皆為流程模擬。正式製作前，工程人員會再次檢查裝配與加工可行性。</span></aside>
                 </div>
-                <div className="review-side"><PreviewModel sealed={enclosureType === "sealed"} compact features={featureCount} /><QuoteCard estimate={estimate} isCnc={isCnc} method={method} quantity={quantity} featureCount={featureCount} review /></div>
+                <div className="review-side"><QuoteCard estimate={estimate} isCnc={isCnc} method={method} quantity={quantity} featureCount={featureCount} review /></div>
               </section>
             )}
           </>
@@ -401,8 +518,8 @@ export default function Home() {
       {!payment && (
         <footer className="bottom-bar">
           <button className="back-button" type="button" onClick={back} disabled={step === 1}>← 上一步</button>
-          <p><span>{step === 7 ? "準備完成" : "接下來"}</span>{step === 1 ? "上傳 PCB 照片，或直接輸入尺寸" : step === 2 ? "確認 AI 辨識或手動輸入的 PCB 尺寸" : step === 3 ? "設定外殼尺寸與固定孔位置" : step === 4 ? "選擇外殼六個面的客製內容" : step === 5 ? "選擇製作方式與檔案" : step === 6 ? "確認全部設定與估價" : isCnc ? "送出需求並等待正式報價" : "進入模擬付款"}</p>
-          {step < 7 ? <button className="primary-button" type="button" onClick={next} disabled={step === 2 && !inputMode}>繼續：{steps[step]} <span>→</span></button> : <button className="primary-button" type="button" onClick={() => isCnc ? setSuccess(true) : setPayment(true)}>{isCnc ? "送出需求，等待正式報價" : "確認並前往付款"} <span>→</span></button>}
+          <p><span>{step === 7 ? "準備完成" : "接下來"}</span>{step === 1 ? "上傳 PCB 照片，或直接輸入尺寸" : step === 2 ? "確認 AI 辨識或手動輸入的 PCB 尺寸" : step === 3 ? "設定外殼與上蓋尺寸" : step === 4 ? "選擇外殼六個面的客製內容" : step === 5 ? "選擇製作方式與檔案" : step === 6 ? "確認全部設定與估價" : isCnc ? "送出需求並等待正式報價" : "進入模擬付款"}</p>
+          {step < 7 ? <button className="primary-button" type="button" onClick={next} disabled={(step === 2 && !inputMode) || (step === 3 && hasInvalidHoles) || (step === 4 && hasInvalidEnclosure) || (step === 6 && requiresDesignFile)} title={step === 3 && hasInvalidHoles ? "請先修正超出 PCB 最大尺寸的孔位" : step === 4 && hasInvalidEnclosure ? "請先將外殼尺寸調整到允許範圍內" : step === 6 && requiresDesignFile ? "只要設計檔時，請至少選擇一種檔案格式" : undefined}>繼續：{steps[step]} <span>→</span></button> : <button className="primary-button" type="button" onClick={() => isCnc ? setSuccess(true) : setPayment(true)}>{isCnc ? "送出需求，等待正式報價" : "確認並前往付款"} <span>→</span></button>}
         </footer>
       )}
 
