@@ -6,14 +6,55 @@ import { Enclosure3DPreview } from "./components/Enclosure3DPreview";
 type EnclosureType = "standard" | "sealed";
 type Method = "pla" | "asa" | "cnc";
 type Face = "top" | "bottom" | "front" | "back" | "left" | "right";
-type Feature = { id: number; kind: "opening" | "connector" | "thermal"; label: string };
+type OpeningShape = "矩形" | "圓形" | "上傳照片自定";
+type Feature = {
+  id: number;
+  kind: "opening" | "connector" | "thermal";
+  label: string;
+  x: number;
+  y: number;
+  width?: number;
+  height?: number;
+  diameter?: number;
+  sourceImageName?: string;
+  openingShape?: OpeningShape;
+  connectorType?: string;
+};
 type Hole = { x: number; y: number };
 type PcbPlacement = { x: number; y: number; rotation: number };
+
+function getPlacedPcbBounds(width: number, depth: number, placement: PcbPlacement) {
+  const radians = (placement.rotation * Math.PI) / 180;
+  const cosine = Math.cos(radians);
+  const sine = Math.sin(radians);
+  const corners = [[0, 0], [width, 0], [width, depth], [0, depth]].map(([x, y]) => ({
+    x: placement.x + x * cosine - y * sine,
+    y: placement.y + x * sine + y * cosine,
+  }));
+  return {
+    minX: Math.min(...corners.map((corner) => corner.x)),
+    maxX: Math.max(...corners.map((corner) => corner.x)),
+    minY: Math.min(...corners.map((corner) => corner.y)),
+    maxY: Math.max(...corners.map((corner) => corner.y)),
+  };
+}
 
 const steps = ["外殼類型", "PCB 資料", "確認 PCB 尺寸", "確認外殼尺寸", "六面客製", "製作與報價", "確認送出"];
 const faceLabels: Record<Face, string> = { top: "上面", bottom: "下面", front: "前面", back: "後面", left: "左面", right: "右面" };
 const emptyFaces: Record<Face, Feature[]> = { top: [], bottom: [], front: [], back: [], left: [], right: [] };
 const methodLabels: Record<Method, string> = { pla: "PLA 3D 列印", asa: "ASA 3D 列印", cnc: "6 系列鋁合金 CNC" };
+const connectorSizes: Record<string, { width: number; height: number }> = {
+  "USB Type-A": { width: 14.5, height: 7.2 },
+  "USB Type-B": { width: 12.2, height: 11 },
+  "USB Type-C": { width: 9.2, height: 3.6 },
+  "USB Micro-B": { width: 8.2, height: 3.2 },
+};
+
+function getFaceSize(face: Face, enclosure: { width: number; height: number; depth: number; lidHeight: number }) {
+  if (face === "top" || face === "bottom") return { width: enclosure.width, height: enclosure.height };
+  if (face === "front" || face === "back") return { width: enclosure.width, height: enclosure.depth };
+  return { width: enclosure.height, height: enclosure.depth };
+}
 
 function PreviewModel({ sealed = false, compact = false, features = 0 }: { sealed?: boolean; compact?: boolean; features?: number }) {
   return (
@@ -38,8 +79,7 @@ function PcbPlanPreview({ width, depth, componentHeight, holeDiameter, holes }: 
       <div className="preview-badge"><i /> 平面即時預覽</div>
       <div className="pcb-plan-stage">
         <div className="pcb-plan-board" style={{ aspectRatio: `${safeWidth} / ${safeDepth}` }}>
-          <span className="pcb-chip main-chip" /><span className="pcb-chip port-chip" /><span className="pcb-chip small-chip" />
-          <span className="pcb-trace trace-one" /><span className="pcb-trace trace-two" /><b>PCB</b>
+          <b>PCB</b>
           {holes.map((hole, index) => {
             return (
             <span
@@ -141,8 +181,12 @@ export default function Home() {
   const [showPcbInEnclosure, setShowPcbInEnclosure] = useState(true);
   const [selectedFace, setSelectedFace] = useState<Face>("front");
   const [faces, setFaces] = useState<Record<Face, Feature[]>>(emptyFaces);
-  const [openingShape, setOpeningShape] = useState("矩形");
+  const [openingShape, setOpeningShape] = useState<OpeningShape>("矩形");
+  const [openingSize, setOpeningSize] = useState({ width: 12, height: 8, diameter: 8 });
+  const [openingPosition, setOpeningPosition] = useState({ x: 20, y: 10 });
+  const [openingImageName, setOpeningImageName] = useState("");
   const [connectorType, setConnectorType] = useState("USB Type-C");
+  const [connectorPosition, setConnectorPosition] = useState({ x: 20, y: 10 });
   const [method, setMethod] = useState<Method>("pla");
   const [finish, setFinish] = useState("黑色");
   const [physical, setPhysical] = useState(true);
@@ -152,17 +196,17 @@ export default function Home() {
   const [success, setSuccess] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [notice, setNotice] = useState("");
+  const [hasOtherCustomization, setHasOtherCustomization] = useState(false);
+  const [otherCustomizationText, setOtherCustomizationText] = useState("");
+  const [otherCustomizationFiles, setOtherCustomizationFiles] = useState<string[]>([]);
+  const [editingFeatureId, setEditingFeatureId] = useState<number | null>(null);
   const uploadRef = useRef<HTMLInputElement>(null);
+  const openingUploadRef = useRef<HTMLInputElement>(null);
+  const otherCustomizationUploadRef = useRef<HTMLInputElement>(null);
 
   const featureCount = Object.values(faces).flat().length;
-  const faceFeatureCounts = useMemo(() => ({
-    top: faces.top.length,
-    bottom: faces.bottom.length,
-    front: faces.front.length,
-    back: faces.back.length,
-    left: faces.left.length,
-    right: faces.right.length,
-  }), [faces]);
+  const selectedFaceSize = useMemo(() => getFaceSize(selectedFace, enclosure), [enclosure, selectedFace]);
+  const activePreviewFeatureId = editingFeatureId ?? [...faces[selectedFace]].reverse().find((item) => item.kind !== "thermal")?.id ?? null;
   const hasThermal = Object.values(faces).flat().some((item) => item.kind === "thermal");
   const isCnc = method === "cnc" || enclosureType === "sealed";
   const hasSelectedFile = files.stl || files.step || files.drawing;
@@ -179,6 +223,12 @@ export default function Home() {
     enclosure.lidHeight < 8 || enclosure.lidHeight > 50 ? "上蓋高度必須介於 8～50 mm" : "",
   ].filter(Boolean);
   const hasInvalidEnclosure = enclosureRangeErrors.length > 0;
+  const pcbPlacementBounds = useMemo(() => getPlacedPcbBounds(pcb.width, pcb.depth, pcbPlacement), [pcb.depth, pcb.width, pcbPlacement]);
+  const placementTolerance = 0.001;
+  const hasInvalidPcbPlacement = pcbPlacementBounds.minX < -placementTolerance
+    || pcbPlacementBounds.minY < -placementTolerance
+    || pcbPlacementBounds.maxX > enclosure.width + placementTolerance
+    || pcbPlacementBounds.maxY > enclosure.height + placementTolerance;
 
   useEffect(() => {
     if (enclosureType === "sealed" || hasThermal) {
@@ -188,9 +238,23 @@ export default function Home() {
   }, [enclosureType, hasThermal]);
 
   useEffect(() => {
-    const snapshot = { step, enclosureType, pcb, holes, enclosure, pcbPlacement, showPcbInEnclosure, faces, method, finish, physical, quantity, files };
+    const openingWidth = openingShape === "圓形" ? openingSize.diameter : openingSize.width;
+    const openingHeight = openingShape === "圓形" ? openingSize.diameter : openingSize.height;
+    const connectorSize = connectorSizes[connectorType];
+    setOpeningPosition({
+      x: Number(Math.max(0, (selectedFaceSize.width - openingWidth) / 2).toFixed(1)),
+      y: Number(Math.max(0, (selectedFaceSize.height - openingHeight) / 2).toFixed(1)),
+    });
+    setConnectorPosition({
+      x: Number(Math.max(0, (selectedFaceSize.width - connectorSize.width) / 2).toFixed(1)),
+      y: Number(Math.max(0, (selectedFaceSize.height - connectorSize.height) / 2).toFixed(1)),
+    });
+  }, [selectedFace, selectedFaceSize.height, selectedFaceSize.width]);
+
+  useEffect(() => {
+    const snapshot = { step, enclosureType, pcb, holes, enclosure, pcbPlacement, showPcbInEnclosure, faces, method, finish, physical, quantity, files, hasOtherCustomization, otherCustomizationText, otherCustomizationFiles };
     localStorage.setItem("caseform-draft", JSON.stringify(snapshot));
-  }, [step, enclosureType, pcb, holes, enclosure, pcbPlacement, showPcbInEnclosure, faces, method, finish, physical, quantity, files]);
+  }, [step, enclosureType, pcb, holes, enclosure, pcbPlacement, showPcbInEnclosure, faces, method, finish, physical, quantity, files, hasOtherCustomization, otherCustomizationText, otherCustomizationFiles]);
 
   const estimate = useMemo(() => {
     const base = method === "pla" ? 1680 : method === "asa" ? 2380 : 4800;
@@ -205,8 +269,8 @@ export default function Home() {
       setNotice("請先修正超出 PCB 最大尺寸的孔位");
       return;
     }
-    if (step === 4 && target > 4 && hasInvalidEnclosure) {
-      setNotice("請先將外殼參數調整到允許範圍內");
+    if (step === 4 && target > 4 && (hasInvalidEnclosure || hasInvalidPcbPlacement)) {
+      setNotice(hasInvalidPcbPlacement ? "請先調整 PCB 位置，確認整片 PCB 都在外殼範圍內" : "請先將外殼參數調整到允許範圍內");
       return;
     }
     if (step === 6 && target > 6 && requiresDesignFile) {
@@ -264,21 +328,77 @@ export default function Home() {
 
   const addFeature = (kind: Feature["kind"]) => {
     const existing = faces[selectedFace];
+    const editingItem = editingFeatureId === null ? undefined : existing.find((item) => item.id === editingFeatureId);
+    const editId = editingItem?.kind === kind ? editingFeatureId : null;
     if (kind === "thermal" && existing.some((item) => item.kind === "thermal")) {
       setNotice("這一面已增加散熱表面積。 ");
       return;
     }
-    const label = kind === "opening" ? `${openingShape}開口 12 × 8 mm` : kind === "connector" ? `${connectorType} 接頭孔` : "增加外殼散熱表面積";
-    setFaces((old) => ({ ...old, [selectedFace]: [...old[selectedFace], { id: Date.now(), kind, label }] }));
-    setNotice(`已加入${faceLabels[selectedFace]}：${label}`);
+    const center = { x: selectedFaceSize.width / 2, y: selectedFaceSize.height / 2 };
+    let feature: Feature;
+    if (kind === "opening") {
+      if (openingShape === "上傳照片自定" && !openingImageName) {
+        setNotice("請先拍照或上傳 1 張自訂開口圖片");
+        return;
+      }
+      const width = openingShape === "圓形" ? openingSize.diameter : openingSize.width;
+      const height = openingShape === "圓形" ? openingSize.diameter : openingSize.height;
+      if (openingShape !== "上傳照片自定" && (width <= 0 || height <= 0 || openingPosition.x < 0 || openingPosition.x + width > selectedFaceSize.width || openingPosition.y < 0 || openingPosition.y + height > selectedFaceSize.height)) {
+        setNotice(`開口尺寸或位置超出${faceLabels[selectedFace]}可用範圍`);
+        return;
+      }
+      const label = openingShape === "矩形"
+        ? `矩形開口 ${openingSize.width} × ${openingSize.height} mm · X 邊懸 ${openingPosition.x} / Y 邊懸 ${openingPosition.y}`
+        : openingShape === "圓形"
+          ? `圓形開口 Ø${openingSize.diameter} mm · X 邊懸 ${openingPosition.x} / Y 邊懸 ${openingPosition.y}`
+          : `照片自訂開口 · ${openingImageName}`;
+      feature = { id: editId ?? Date.now(), kind, label, x: openingShape === "上傳照片自定" ? center.x : openingPosition.x, y: openingShape === "上傳照片自定" ? center.y : openingPosition.y, width: openingShape === "矩形" ? openingSize.width : undefined, height: openingShape === "矩形" ? openingSize.height : undefined, diameter: openingShape === "圓形" ? openingSize.diameter : undefined, sourceImageName: openingShape === "上傳照片自定" ? openingImageName : undefined, openingShape };
+    } else if (kind === "connector") {
+      const connectorSize = connectorSizes[connectorType];
+      if (connectorPosition.x < 0 || connectorPosition.x + connectorSize.width > selectedFaceSize.width || connectorPosition.y < 0 || connectorPosition.y + connectorSize.height > selectedFaceSize.height) {
+        setNotice(`接頭孔位置超出${faceLabels[selectedFace]}可用範圍`);
+        return;
+      }
+      const label = `${connectorType} 接頭孔 · X 邊懸 ${connectorPosition.x} / Y 邊懸 ${connectorPosition.y}`;
+      feature = { id: editId ?? Date.now(), kind, label, x: connectorPosition.x, y: connectorPosition.y, width: connectorSize.width, height: connectorSize.height, connectorType };
+    } else {
+      const label = "增加外殼散熱表面積";
+      feature = { id: Date.now(), kind, label, x: center.x, y: center.y };
+    }
+    const isEditingMatchingKind = editId !== null;
+    setFaces((old) => ({ ...old, [selectedFace]: isEditingMatchingKind ? old[selectedFace].map((item) => item.id === editId ? feature : item) : [...old[selectedFace], feature] }));
+    const label = feature.label;
+    setNotice(`${isEditingMatchingKind ? "已更新" : "已加入"}${faceLabels[selectedFace]}：${label}`);
+    setEditingFeatureId(null);
   };
 
-  const removeFeature = (face: Face, id: number) => setFaces((old) => ({ ...old, [face]: old[face].filter((item) => item.id !== id) }));
+  const editFeature = (face: Face, item: Feature) => {
+    setSelectedFace(face);
+    setEditingFeatureId(item.id);
+    if (item.kind === "opening") {
+      const shape = item.openingShape ?? (item.sourceImageName ? "上傳照片自定" : item.diameter ? "圓形" : "矩形");
+      setOpeningShape(shape);
+      setOpeningSize((old) => ({ ...old, width: item.width ?? old.width, height: item.height ?? old.height, diameter: item.diameter ?? old.diameter }));
+      setOpeningPosition({ x: item.x, y: item.y });
+      setOpeningImageName(item.sourceImageName ?? "");
+    } else if (item.kind === "connector") {
+      const type = item.connectorType ?? item.label.split(" 接頭孔")[0];
+      setConnectorType(connectorSizes[type] ? type : "USB Type-C");
+      setConnectorPosition({ x: item.x, y: item.y });
+    }
+    setNotice(`正在編輯${faceLabels[face]}：${item.label}`);
+  };
+
+  const removeFeature = (face: Face, id: number) => {
+    setFaces((old) => ({ ...old, [face]: old[face].filter((item) => item.id !== id) }));
+    if (editingFeatureId === id) setEditingFeatureId(null);
+  };
 
   const reset = () => {
     localStorage.removeItem("caseform-draft");
     setStep(1); setMaxStep(1); setPayment(false); setSuccess(false); setFaces(emptyFaces);
     setInputMode(null); setFileNames([]); setMethod("pla"); setEnclosureType("standard");
+    setHasOtherCustomization(false); setOtherCustomizationText(""); setOtherCustomizationFiles([]); setEditingFeatureId(null);
     setNotice("已建立新的訂製需求");
   };
 
@@ -430,6 +550,7 @@ export default function Home() {
                       <button type="button" onClick={() => setPcbPlacement((old) => ({ ...old, rotation: ((old.rotation - 90) % 360 + 360) % 360 }))}>向左旋轉 90°</button>
                       <button type="button" onClick={() => setPcbPlacement((old) => ({ ...old, rotation: (old.rotation + 90) % 360 }))}>向右旋轉 90°</button>
                     </div>
+                    {hasInvalidPcbPlacement && <p className="placement-validation-error" role="alert">PCB 已超出外殼範圍。請調整 X / Y 平移、旋轉角度或外殼尺寸後再繼續。</p>}
                   </div>
                   <aside className="green-guide"><b>外殼尺寸說明</b><span>建議尺寸包含基本裝配間隙；正式製作前仍會依材料與加工方式進行工程確認。</span></aside>
                 </div>
@@ -441,20 +562,35 @@ export default function Home() {
               <section className="customize-layout">
                 <div className="custom-sidebar">
                   <StepHeader number={5} kicker="六面客製" title="點選你想修改的面" description="每一面都可以加入開口、接頭孔，或增加外殼散熱表面積。" />
-                  <div className="face-grid">{(Object.keys(faceLabels) as Face[]).map((face) => <button key={face} className={selectedFace === face ? "selected" : ""} onClick={() => setSelectedFace(face)}><span>{faceLabels[face]}</span><b>{faces[face].length || "—"}</b></button>)}</div>
+                  <div className="face-grid">{(Object.keys(faceLabels) as Face[]).map((face) => <button key={face} className={selectedFace === face ? "selected" : ""} onClick={() => { setSelectedFace(face); setEditingFeatureId(null); }}><span>{faceLabels[face]}</span><b>{faces[face].length || "—"}</b></button>)}</div>
                   <aside className="green-guide"><b>目前編輯：{faceLabels[selectedFace]}</b><span>位置與尺寸在本 MVP 中以示意資料呈現，正式製作前仍會由工程人員確認。</span></aside>
                 </div>
                 <div className="custom-main">
-                  <div className="case-canvas three-case-canvas"><Enclosure3DPreview family={enclosureType} length={enclosure.width} width={enclosure.height} height={enclosure.depth} lidHeight={enclosure.lidHeight} selectedFace={selectedFace} featureCounts={faceFeatureCounts} /><div className="face-name">目前查看：{faceLabels[selectedFace]} · {faces[selectedFace].length} 項客製</div></div>
+                  <div className="case-canvas three-case-canvas"><Enclosure3DPreview family={enclosureType} length={enclosure.width} width={enclosure.height} height={enclosure.depth} lidHeight={enclosure.lidHeight} pcbWidth={pcb.width} pcbDepth={pcb.depth} pcbHoleDiameter={pcb.holeDiameter} pcbHoles={holes} pcbPlacement={pcbPlacement} selectedFace={selectedFace} activeFeatureId={activePreviewFeatureId} features={faces} /><div className="face-name">目前查看：{faceLabels[selectedFace]} · {faces[selectedFace].length} 項客製</div></div>
                   <div className="feature-panel">
                     <div className="section-title"><b>在{faceLabels[selectedFace]}新增</b><span>{featureCount} 項總客製</span></div>
+                    {editingFeatureId !== null && <div className="feature-editing-banner"><span>正在編輯既有客製項目；調整下方參數後按「儲存變更」。</span><button type="button" onClick={() => setEditingFeatureId(null)}>取消編輯</button></div>}
                     <div className="feature-actions">
-                      <div className="feature-action"><span className="feature-icon">□</span><div><b>新增開口</b><small>圓形或矩形開口</small><select value={openingShape} onChange={(e) => setOpeningShape(e.target.value)}><option>矩形</option><option>圓形</option></select></div><button onClick={() => addFeature("opening")}>＋</button></div>
-                      <div className="feature-action"><span className="feature-icon">⌁</span><div><b>新增接頭孔</b><small>使用常見接頭尺寸</small><select value={connectorType} onChange={(e) => setConnectorType(e.target.value)}><option>USB Type-A</option><option>USB Type-B</option><option>USB Type-C</option><option>USB Micro-B</option></select></div><button onClick={() => addFeature("connector")}>＋</button></div>
-                      <div className="feature-action thermal-action"><span className="feature-icon">≋</span><div><b>增加外殼散熱表面積</b><small>僅適用 6 系列鋁合金 CNC</small></div><button onClick={() => addFeature("thermal")}>＋</button></div>
+                      <div className="feature-action expanded-feature-action">
+                        <span className="feature-icon">□</span>
+                        <div className="feature-config"><b>新增開口</b><small>以外殼原點到開口輪廓最近邊設定 X／Y 邊懸</small>
+                          <div className="feature-choice-tabs">{(["矩形", "圓形", "上傳照片自定"] as OpeningShape[]).map((shape) => <button type="button" className={openingShape === shape ? "selected" : ""} onClick={() => setOpeningShape(shape)} key={shape}>{shape}</button>)}</div>
+                          {openingShape === "矩形" && <div className="feature-field-grid four"><label><span>長度</span><input type="number" min="0.1" max={selectedFaceSize.width} value={openingSize.width} onChange={(e) => setOpeningSize((old) => ({ ...old, width: Number(e.target.value) }))} /></label><label><span>寬度</span><input type="number" min="0.1" max={selectedFaceSize.height} value={openingSize.height} onChange={(e) => setOpeningSize((old) => ({ ...old, height: Number(e.target.value) }))} /></label><label><span>X 邊懸</span><input type="number" min="0" max={Math.max(0, selectedFaceSize.width - openingSize.width)} value={openingPosition.x} onChange={(e) => setOpeningPosition((old) => ({ ...old, x: Number(e.target.value) }))} /></label><label><span>Y 邊懸</span><input type="number" min="0" max={Math.max(0, selectedFaceSize.height - openingSize.height)} value={openingPosition.y} onChange={(e) => setOpeningPosition((old) => ({ ...old, y: Number(e.target.value) }))} /></label></div>}
+                          {openingShape === "圓形" && <div className="feature-field-grid three"><label><span>直徑</span><input type="number" min="0.1" max={Math.min(selectedFaceSize.width, selectedFaceSize.height)} value={openingSize.diameter} onChange={(e) => setOpeningSize((old) => ({ ...old, diameter: Number(e.target.value) }))} /></label><label><span>X 邊懸</span><input type="number" min="0" max={Math.max(0, selectedFaceSize.width - openingSize.diameter)} value={openingPosition.x} onChange={(e) => setOpeningPosition((old) => ({ ...old, x: Number(e.target.value) }))} /></label><label><span>Y 邊懸</span><input type="number" min="0" max={Math.max(0, selectedFaceSize.height - openingSize.diameter)} value={openingPosition.y} onChange={(e) => setOpeningPosition((old) => ({ ...old, y: Number(e.target.value) }))} /></label></div>}
+                          {openingShape === "上傳照片自定" && <div className="feature-upload-row"><input ref={openingUploadRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => setOpeningImageName(e.target.files?.[0]?.name ?? "")} /><button type="button" onClick={() => openingUploadRef.current?.click()}>拍照或上傳圖片</button><span>{openingImageName || "限 1 張圖片"}</span></div>}
+                          <p className="face-range-note">邊懸由 X0／Y0 量到輪廓最近邊；開口與邊懸總和不可超出 {faceLabels[selectedFace]} {selectedFaceSize.width} × {selectedFaceSize.height} mm</p>
+                        </div>
+                        <button type="button" aria-label={editingFeatureId !== null && faces[selectedFace].some((item) => item.id === editingFeatureId && item.kind === "opening") ? "儲存開口變更" : "加入開口"} onClick={() => addFeature("opening")}>{editingFeatureId !== null && faces[selectedFace].some((item) => item.id === editingFeatureId && item.kind === "opening") ? "✓" : "＋"}</button>
+                      </div>
+                      <div className="feature-action expanded-feature-action">
+                        <span className="feature-icon">⌁</span>
+                        <div className="feature-config"><b>新增接頭孔</b><small>以外殼原點到接頭孔輪廓最近邊設定 X／Y 邊懸</small><select value={connectorType} onChange={(e) => setConnectorType(e.target.value)}><option>USB Type-A</option><option>USB Type-B</option><option>USB Type-C</option><option>USB Micro-B</option></select><div className="feature-field-grid two"><label><span>X 邊懸</span><input type="number" min="0" max={Math.max(0, selectedFaceSize.width - connectorSizes[connectorType].width)} value={connectorPosition.x} onChange={(e) => setConnectorPosition((old) => ({ ...old, x: Number(e.target.value) }))} /></label><label><span>Y 邊懸</span><input type="number" min="0" max={Math.max(0, selectedFaceSize.height - connectorSizes[connectorType].height)} value={connectorPosition.y} onChange={(e) => setConnectorPosition((old) => ({ ...old, y: Number(e.target.value) }))} /></label></div><p className="face-range-note">邊懸由 X0／Y0 量到接頭孔輪廓最近邊；目前孔尺寸 {connectorSizes[connectorType].width} × {connectorSizes[connectorType].height} mm</p></div>
+                        <button type="button" aria-label={editingFeatureId !== null && faces[selectedFace].some((item) => item.id === editingFeatureId && item.kind === "connector") ? "儲存接頭孔變更" : "加入接頭孔"} onClick={() => addFeature("connector")}>{editingFeatureId !== null && faces[selectedFace].some((item) => item.id === editingFeatureId && item.kind === "connector") ? "✓" : "＋"}</button>
+                      </div>
+                      <div className="feature-action thermal-action"><span className="feature-icon">≋</span><div><b>增加外殼散熱表面積</b><small className="thermal-material-note">該選項僅適用鋁合金CNC材質</small></div><button type="button" onClick={() => addFeature("thermal")}>＋</button></div>
                     </div>
                     <div className="feature-list">
-                      {faces[selectedFace].map((item) => <div key={item.id}><span><i>{item.kind === "opening" ? "開" : item.kind === "connector" ? "接" : "散"}</i><em className="feature-face-badge">{faceLabels[selectedFace]}</em>{item.label}</span><button onClick={() => removeFeature(selectedFace, item.id)}>移除</button></div>)}
+                      {faces[selectedFace].map((item) => <div className={editingFeatureId === item.id ? "editing" : ""} key={item.id}><span><i>{item.kind === "opening" ? "開" : item.kind === "connector" ? "接" : "散"}</i><em className="feature-face-badge">{faceLabels[selectedFace]}</em>{item.label}</span><div className="feature-list-actions">{item.kind !== "thermal" && <button type="button" onClick={() => editFeature(selectedFace, item)}>編輯</button>}<button type="button" onClick={() => removeFeature(selectedFace, item.id)}>移除</button></div></div>)}
                       {faces[selectedFace].length === 0 && <p>這一面尚未加入客製項目。</p>}
                     </div>
                   </div>
@@ -467,7 +603,7 @@ export default function Home() {
                 <div className="page-copy wide-copy">
                   <StepHeader number={6} kicker="製作與報價" title="選擇你要的交付方式" description="你可以只取得設計檔，也可以交給我們製作。價格會隨材料、數量與客製內容即時估算。" />
                   {enclosureType === "sealed" && <div className="constraint-banner"><b>密封型製作限制</b><span>密封型目前僅提供 6 系列鋁合金 CNC，已為你自動選擇。</span></div>}
-                  {hasThermal && enclosureType !== "sealed" && <div className="constraint-banner"><b>散熱表面積需求</b><span>你的設計包含「增加外殼散熱表面積」，因此製作方式已切換為鋁合金 CNC。</span></div>}
+                  {hasThermal && enclosureType !== "sealed" && <div className="constraint-banner critical"><b>已選擇客製化散熱</b><span>因上一步選擇了「增加外殼散熱表面積」，製作方式強制為鋁合金 CNC，其他材質無法選擇。</span></div>}
                   <div className="form-section">
                     <div className="section-title"><b>製作方式</b><span>選擇一項</span></div>
                     <div className="method-grid">
@@ -491,8 +627,12 @@ export default function Home() {
                     <div className={`file-options ${requiresDesignFile ? "invalid" : ""}`} aria-invalid={requiresDesignFile}>{([['stl','STL','可直接 3D 列印'],['step','STEP','3D 工程模型'],['drawing','CAD 工程圖','加工尺寸與標註']] as const).map(([key,title,note]) => <button key={key} className={files[key] ? "selected" : ""} aria-pressed={files[key]} onClick={() => setFiles((old) => ({ ...old, [key]: !old[key] }))}><span>{files[key] ? "✓" : ""}</span><b>{title}</b><small>{note}</small></button>)}</div>
                     {requiresDesignFile && <p className="file-validation-error" role="alert">只要設計檔時，請至少勾選一種檔案格式。</p>}
                   </div>
+                  <div className={`form-section other-customization-section ${hasOtherCustomization ? "selected" : ""}`}>
+                    <button type="button" className="other-customization-toggle" aria-pressed={hasOtherCustomization} onClick={() => setHasOtherCustomization((value) => !value)}><span>{hasOtherCustomization ? "✓" : ""}</span><b>我有其他客製化需求</b><small>可補充文字與最多 3 張參考照片</small></button>
+                    {hasOtherCustomization && <div className="other-customization-fields"><label><span>需求說明</span><textarea rows={4} placeholder="例如：特殊固定方式、表面文字、非標準接頭或其他加工需求" value={otherCustomizationText} onChange={(e) => setOtherCustomizationText(e.target.value)} /></label><div className="other-customization-upload"><input ref={otherCustomizationUploadRef} type="file" accept="image/*" multiple hidden onChange={(e) => setOtherCustomizationFiles(Array.from(e.target.files ?? []).slice(0, 3).map((file) => file.name))} /><button type="button" onClick={() => otherCustomizationUploadRef.current?.click()}>上傳參考照片</button><span>{otherCustomizationFiles.length ? `${otherCustomizationFiles.length} / 3 張：${otherCustomizationFiles.join("、")}` : "尚未上傳（最多 3 張）"}</span></div><p>此需求不包含在目前預估價格內，送出後會依實際客製內容另外提供報價。</p></div>}
+                  </div>
                 </div>
-                <div className="quote-side"><Enclosure3DPreview compact family={enclosureType} length={enclosure.width} width={enclosure.height} height={enclosure.depth} lidHeight={enclosure.lidHeight} featureCounts={faceFeatureCounts} /><QuoteCard estimate={estimate} isCnc={isCnc} method={method} quantity={quantity} featureCount={featureCount} /></div>
+                <div className="quote-side"><Enclosure3DPreview compact family={enclosureType} length={enclosure.width} width={enclosure.height} height={enclosure.depth} lidHeight={enclosure.lidHeight} pcbWidth={pcb.width} pcbDepth={pcb.depth} pcbHoleDiameter={pcb.holeDiameter} pcbHoles={holes} pcbPlacement={pcbPlacement} features={faces} /><QuoteCard estimate={estimate} isCnc={isCnc} method={method} quantity={quantity} featureCount={featureCount} hasOtherCustomization={hasOtherCustomization} /></div>
               </section>
             )}
 
@@ -504,11 +644,11 @@ export default function Home() {
                     <SummaryBlock title="外殼" onEdit={() => goTo(4)}><strong>{enclosureType === "standard" ? "一般型" : "密封型"}</strong><span>長 {enclosure.width} × 寬 {enclosure.height} mm · 本體高 {enclosure.depth} mm · 上蓋高 {enclosure.lidHeight} mm</span></SummaryBlock>
                     <SummaryBlock title="PCB" onEdit={() => goTo(3)}><strong>{pcb.width} × {pcb.depth} mm</strong><span>{holes.length} 個孔位 · 最高元件 {pcb.componentHeight} mm</span></SummaryBlock>
                     <SummaryBlock title="六面客製" onEdit={() => goTo(5)}><strong>{featureCount ? `${featureCount} 項客製` : "未加入客製"}</strong><span>{(Object.keys(faceLabels) as Face[]).filter((face) => faces[face].length).map((face) => `${faceLabels[face]} ${faces[face].length}`).join(" · ") || "標準外殼表面"}</span></SummaryBlock>
-                    <SummaryBlock title="製作與交付" onEdit={() => goTo(6)}><strong>{methodLabels[method]} · {finish}</strong><span>{physical ? `實體製作 ${quantity} 件` : "僅設計檔"} · {Object.entries(files).filter(([,value]) => value).map(([key]) => key.toUpperCase()).join(" / ") || "未選檔案"}</span></SummaryBlock>
+                    <SummaryBlock title="製作與交付" onEdit={() => goTo(6)}><strong>{methodLabels[method]} · {finish}</strong><span>{physical ? `實體製作 ${quantity} 件` : "僅設計檔"} · {Object.entries(files).filter(([,value]) => value).map(([key]) => key.toUpperCase()).join(" / ") || "未選檔案"}{hasOtherCustomization ? " · 含其他客製需求（另行報價）" : ""}</span></SummaryBlock>
                   </div>
                   <aside className="green-guide"><b>工程確認仍是必要步驟</b><span>此 MVP 的尺寸、3D 預覽與價格皆為流程模擬。正式製作前，工程人員會再次檢查裝配與加工可行性。</span></aside>
                 </div>
-                <div className="review-side"><QuoteCard estimate={estimate} isCnc={isCnc} method={method} quantity={quantity} featureCount={featureCount} review /></div>
+                <div className="review-side"><QuoteCard estimate={estimate} isCnc={isCnc} method={method} quantity={quantity} featureCount={featureCount} hasOtherCustomization={hasOtherCustomization} review /></div>
               </section>
             )}
           </>
@@ -519,7 +659,7 @@ export default function Home() {
         <footer className="bottom-bar">
           <button className="back-button" type="button" onClick={back} disabled={step === 1}>← 上一步</button>
           <p><span>{step === 7 ? "準備完成" : "接下來"}</span>{step === 1 ? "上傳 PCB 照片，或直接輸入尺寸" : step === 2 ? "確認 AI 辨識或手動輸入的 PCB 尺寸" : step === 3 ? "設定外殼與上蓋尺寸" : step === 4 ? "選擇外殼六個面的客製內容" : step === 5 ? "選擇製作方式與檔案" : step === 6 ? "確認全部設定與估價" : isCnc ? "送出需求並等待正式報價" : "進入模擬付款"}</p>
-          {step < 7 ? <button className="primary-button" type="button" onClick={next} disabled={(step === 2 && !inputMode) || (step === 3 && hasInvalidHoles) || (step === 4 && hasInvalidEnclosure) || (step === 6 && requiresDesignFile)} title={step === 3 && hasInvalidHoles ? "請先修正超出 PCB 最大尺寸的孔位" : step === 4 && hasInvalidEnclosure ? "請先將外殼尺寸調整到允許範圍內" : step === 6 && requiresDesignFile ? "只要設計檔時，請至少選擇一種檔案格式" : undefined}>繼續：{steps[step]} <span>→</span></button> : <button className="primary-button" type="button" onClick={() => isCnc ? setSuccess(true) : setPayment(true)}>{isCnc ? "送出需求，等待正式報價" : "確認並前往付款"} <span>→</span></button>}
+          {step < 7 ? <button className="primary-button" type="button" onClick={next} disabled={(step === 2 && !inputMode) || (step === 3 && hasInvalidHoles) || (step === 4 && (hasInvalidEnclosure || hasInvalidPcbPlacement)) || (step === 6 && requiresDesignFile)} title={step === 3 && hasInvalidHoles ? "請先修正超出 PCB 最大尺寸的孔位" : step === 4 && hasInvalidPcbPlacement ? "請先確認整片 PCB 都在外殼範圍內" : step === 4 && hasInvalidEnclosure ? "請先將外殼尺寸調整到允許範圍內" : step === 6 && requiresDesignFile ? "只要設計檔時，請至少選擇一種檔案格式" : undefined}>繼續：{steps[step]} <span>→</span></button> : <button className="primary-button" type="button" onClick={() => isCnc ? setSuccess(true) : setPayment(true)}>{isCnc ? "送出需求，等待正式報價" : "確認並前往付款"} <span>→</span></button>}
         </footer>
       )}
 
@@ -533,12 +673,13 @@ function MethodCard({ id, selected, title, note, onClick }: { id: string; select
   return <button className={`method-card ${selected ? "selected" : ""}`} onClick={onClick}><span>{id === "cnc" ? "AL" : id.toUpperCase()}</span><b>{title}</b><small>{note}</small><i>{selected ? "✓" : ""}</i></button>;
 }
 
-function QuoteCard({ estimate, isCnc, method, quantity, featureCount, review = false }: { estimate: number; isCnc: boolean; method: Method; quantity: number; featureCount: number; review?: boolean }) {
+function QuoteCard({ estimate, isCnc, method, quantity, featureCount, hasOtherCustomization, review = false }: { estimate: number; isCnc: boolean; method: Method; quantity: number; featureCount: number; hasOtherCustomization: boolean; review?: boolean }) {
   return (
     <aside className={`quote-card ${review ? "review-quote" : ""}`}>
       <div className="quote-top"><span>{isCnc ? "預估價格" : "目前價格"}</span><small>NT$</small><strong>{estimate.toLocaleString("zh-TW")}</strong></div>
       <div className="quote-lines"><span><i>製作方式</i><b>{methodLabels[method]}</b></span><span><i>數量</i><b>{quantity} 件</b></span><span><i>客製項目</i><b>{featureCount} 項</b></span></div>
       {isCnc ? <div className="cnc-warning"><b>此價格為系統初步預估</b><p>6 系列鋁合金 CNC 需依實際尺寸、加工內容與難度進行工程評估。送出需求後，我們將另行提供正式報價與交期。</p></div> : <p className="tax-note">模擬價格已包含設計與基本製作費用。</p>}
+      {hasOtherCustomization && <div className="custom-quote-warning"><b>其他客製化需求將另行報價</b><p>目前金額未包含文字與照片所描述的特殊需求；工程確認後會另外提供正式價格與交期。</p></div>}
     </aside>
   );
 }
