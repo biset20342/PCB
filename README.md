@@ -1,100 +1,90 @@
-# vinext-starter
+# CASEFORM（外殼訂製平台）PCB（印刷電路板）外殼快速訂製 MVP（最小可行產品）
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+這是一個以純前端互動為核心的 PCB 外殼參數化配置網站，用來模擬使用者從提供 PCB 資料、確認尺寸、設定外殼、六面客製，到選擇製作方式與取得預估報價的完整體驗。
 
-## Prerequisites
+目前網站屬於互動式 MVP，主要用於驗證操作流程與視覺呈現，不是正式 CAD（電腦輔助設計）系統，也尚未連接訂單、付款或製造後台。
 
-- Node.js `>=22.13.0`
+## 主要功能
 
-## Quick Start
+- 選擇一般型或密封型外殼。
+- 上傳 PCB 照片進行模擬 AI（人工智慧）輔助辨識，或完全手動輸入資料。
+- 確認 PCB 最大長度、最大寬度、最高元件、統一孔徑與孔位座標。
+- 即時顯示 PCB 平面圖、正視圖、孔位與座標原點。
+- 設定外殼長度、寬度、本體高度與上蓋高度。
+- 平移、旋轉 PCB 與孔位配置，並檢查是否超出外殼範圍。
+- 針對外殼六個面新增開口、接頭孔或散熱表面。
+- 透過 Three.js（三維網頁渲染函式庫）呈現可旋轉、縮放與切換爆炸圖的三維預覽。
+- 選擇 PLA（聚乳酸）列印、ASA（丙烯腈－苯乙烯－丙烯酸酯）列印或鋁合金 CNC（電腦數值控制加工）。
+- 模擬設計檔選擇、預估價格、確認送出與付款完成流程。
+
+## 訂製流程
+
+1. 外殼類型
+2. PCB 資料
+3. 確認 PCB 尺寸
+4. 確認外殼尺寸
+5. 六面客製
+6. 製作與報價
+7. 確認送出
+
+## 主要尺寸規則
+
+- 外殼長度：50～150 mm
+- 外殼寬度：50～150 mm
+- 本體高度：15～100 mm
+- 上蓋高度：8～50 mm
+- 固定壁厚：2.4 mm
+- 固定圓角：R4.5
+- 上蓋方式：螺絲固定
+- 建議外殼長度與寬度至少比 PCB 最大長度與寬度各增加 20 mm
+- 建議本體高度至少比 PCB 最高元件增加 5 mm
+
+## 本機執行
+
+### 環境需求
+
+- Node.js（JavaScript 執行環境）22.13.0 或更新版本
+
+### 安裝與啟動
 
 ```bash
 npm install
 npm run dev
+```
+
+啟動後，依終端機顯示的本機網址開啟網站。
+
+### 測試與建置
+
+```bash
+npm run test
 npm run build
 ```
 
-This starter does not use `wrangler.jsonc`.
+## 使用技術
 
-## Included Shape
+- React（使用者介面函式庫）
+- TypeScript（型別化程式語言）
+- Vinext（網站應用框架）
+- Three.js（三維網頁渲染函式庫）
+- Sites（網站發布服務）
 
-- edit site code under `app/`
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
+## 專案結構
 
-## Workspace Auth Headers
-
-Signed-in visitors receive both `oai-authenticated-user-id` and `oai-authenticated-user-email`. Private Sites require every visitor to sign in; public Sites may also have anonymous visitors, for whom neither header is present.
-
-The user ID is stable for the same user on the same Site and different across Sites. Email and name are intended for display or contact purposes.
-
-SIWC-authenticated workspace sites may also receive
-`oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty
-`name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by
-`oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
-
-Treat the full name as optional and fall back to email when it is absent:
-
-```tsx
-import { headers } from "next/headers";
-
-export default async function Home() {
-  const requestHeaders = await headers();
-  const userId = requestHeaders.get("oai-authenticated-user-id");
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
-
-  const displayName = fullName ?? email;
-  // ...
-}
+```text
+app/                  網站頁面、元件與樣式
+public/models/        三維預覽模型資料
+tests/                畫面與流程測試
+.openai/hosting.json  Sites 網站發布設定
 ```
 
-## Optional Dispatch-Owned ChatGPT Sign-In
+## 目前限制
 
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs
-optional or required ChatGPT sign-in:
+- 照片辨識、報價、付款及訂單資訊皆為前端模擬資料。
+- 密封型外殼目前沿用輕量型外殼的三維視覺替身，正式密封結構尚未完成。
+- 三維模型用於需求溝通與外觀預覽，不可直接視為正式加工圖面。
+- 正式製作前仍需由工程人員確認材料、尺寸、加工內容與報價。
 
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send
-  anonymous visitors through Sign in with ChatGPT.
-- Use `chatGPTSignInPath(returnTo)` and `chatGPTSignOutPath(returnTo)` for
-  browser links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in
-  or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because
-  they depend on per-request identity headers.
+## 線上網站
 
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the
-OAuth cookies, and identity header injection. Do not implement app routes for
-those reserved paths. Routes that do not import and call the helper remain
-anonymous-compatible.
-
-SIWC establishes identity only; it does not prove workspace membership. Use the
-Sites hosting platform's access policy controls for workspace-wide restrictions,
-or enforce explicit server-side membership or allowlist checks.
-
-Use SIWC for account pages, user-specific dashboards, saved records, and write
-actions tied to the current ChatGPT user. Leave public content anonymous.
-
-## Useful Commands
-
-- `npm run dev`: start local development
-- `npm run build`: verify the vinext build output
-- `npm test`: build the starter and verify its rendered loading skeleton
-- `npm run db:generate`: generate Drizzle migrations after schema changes
-
-## Learn More
-
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+[開啟 CASEFORM PCB 外殼快速訂製網站](https://caseform-pcb-enclosure.miko20342.chatgpt.site/)
